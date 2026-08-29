@@ -38,8 +38,25 @@ Platform.shim.eval = (data, env) => {
 
 const safeError = (error) => String(error?.message || error || "Resolver failed")
   .replace(/[\r\n]+/g, " ")
+  .replace(/https?:\/\/[^\s]+/gi, "<url>")
   .replace(/(authorization|cookie|sapisid)\s*[:=]\s*[^\s;]+/gi, "$1=<redacted>")
   .slice(0, 500);
+
+const log = (event, fields = {}) => {
+  try {
+    const safeFields = Object.fromEntries(
+      Object.entries(fields).map(([key, value]) => [
+        key,
+        typeof value === "string" ? safeError(value) : value,
+      ]),
+    );
+    process.stderr.write(
+      `[${new Date().toISOString()}] ${event} ${JSON.stringify(safeFields)}\n`,
+    );
+  } catch {
+    // Diagnostics must never break the JSON protocol.
+  }
+};
 
 const streamUrls = new Map();
 // YouTube currently rejects open-ended ranges; mpv can consume finite chunks.
@@ -53,11 +70,12 @@ const pruneStreamUrls = () => {
   }
 };
 
-const registerStream = (url, expiresInSeconds) => {
+const registerStream = (url, expiresInSeconds, videoId) => {
   pruneStreamUrls();
   const token = randomBytes(18).toString("base64url");
   streamUrls.set(token, {
     url,
+    videoId,
     expiresAt: Date.now() + Math.max(60, expiresInSeconds || 0) * 1000,
   });
   return `${streamBase}/stream/${token}`;
@@ -100,6 +118,12 @@ const serveStream = async (request, response) => {
       },
     });
     if (upstream.status !== 206 || !upstream.body) {
+      log("stream_upstream_rejected", {
+        video_id: entry.videoId,
+        status: upstream.status,
+        start,
+        end,
+      });
       streamResponse(response, 502, "YouTube rejected the audio range");
       return;
     }
@@ -115,6 +139,12 @@ const serveStream = async (request, response) => {
     });
     response.end(body);
   } catch (error) {
+    log("stream_upstream_error", {
+      video_id: entry.videoId,
+      start,
+      end,
+      error: safeError(error),
+    });
     streamResponse(response, 502, safeError(error));
   }
 };
@@ -127,19 +157,37 @@ await new Promise((resolve, reject) => {
   streamServer.listen(0, "127.0.0.1", resolve);
 });
 streamBase = `http://127.0.0.1:${streamServer.address().port}`;
+log("resolver_started", { stream_base: streamBase, cache_dir: cacheDir });
 
-const createClient = async (nextCookie, clientType) => Innertube.create({
-  cache: new UniversalCache(
-    true,
-    `${cacheDir}/${clientType.toLowerCase()}`,
-  ),
-  cookie: nextCookie || undefined,
-  client_type: clientType,
-  generate_session_locally: true,
-});
+const createClient = async (nextCookie, clientType) => {
+  log("client_create_start", {
+    client: clientType,
+    authenticated: Boolean(nextCookie),
+  });
+  try {
+    const result = await Innertube.create({
+      cache: new UniversalCache(
+        true,
+        `${cacheDir}/${clientType.toLowerCase()}`,
+      ),
+      cookie: nextCookie || undefined,
+      client_type: clientType,
+      generate_session_locally: true,
+    });
+    log("client_create_success", { client: clientType });
+    return result;
+  } catch (error) {
+    log("client_create_error", { client: clientType, error: safeError(error) });
+    throw error;
+  }
+};
 
 const configure = async (nextCookie) => {
   const value = String(nextCookie || "").trim();
+  log("configure", {
+    authenticated: Boolean(value),
+    changed: !client || value !== cookieHeader,
+  });
   if (!client || value !== cookieHeader) {
     // Android VR returns regular audio URLs without browser-only SABR
     // requirements. Create the authenticated WEB client only if a restricted
@@ -182,9 +230,30 @@ const chooseAudioFormat = (info, qualityKbps) => {
   return candidates[0];
 };
 
-const resolveWithClient = async (activeClient, id, qualityKbps) => {
+const resolveWithClient = async (activeClient, clientType, id, qualityKbps) => {
   const info = await activeClient.getBasicInfo(id);
+  const streaming = info.streaming_data;
+  log("streaming_data", {
+    client: clientType,
+    video_id: id,
+    present: Boolean(streaming),
+    formats: streaming?.formats?.length || 0,
+    adaptive_formats: streaming?.adaptive_formats?.length || 0,
+    playability: info.playability_status?.status || "",
+    reason: info.playability_status?.reason || "",
+  });
   const format = chooseAudioFormat(info, qualityKbps);
+  log("format_selected", {
+    client: clientType,
+    video_id: id,
+    itag: Number(format.itag || 0),
+    bitrate: bitrate(format),
+    mime_type: String(format.mime_type || ""),
+    has_audio: Boolean(format.has_audio),
+    has_video: Boolean(format.has_video),
+    has_url: Boolean(format.url),
+    has_cipher: Boolean(format.signature_cipher || format.cipher),
+  });
   const url = await format.decipher(activeClient.session.player);
   if (!url || !/^https:\/\//.test(url)) throw new Error("Invalid audio URL");
 
@@ -201,9 +270,9 @@ const resolveWithClient = async (activeClient, id, qualityKbps) => {
   };
 };
 
-const localizeStream = (result) => ({
+const localizeStream = (result, videoId) => ({
   ...result,
-  url: registerStream(result.url, result.expires_in_seconds),
+  url: registerStream(result.url, result.expires_in_seconds, videoId),
 });
 
 const resolve = async ({ video_id: videoId, quality_kbps: qualityKbps }) => {
@@ -212,15 +281,31 @@ const resolve = async ({ video_id: videoId, quality_kbps: qualityKbps }) => {
   if (!id) throw new Error("Missing video id");
 
   try {
-    return localizeStream(await resolveWithClient(client, id, qualityKbps));
+    const result = await resolveWithClient(client, "ANDROID_VR", id, qualityKbps);
+    log("resolve_success", { client: "ANDROID_VR", video_id: id });
+    return localizeStream(result, id);
   } catch (publicError) {
+    log("resolve_error", {
+      client: "ANDROID_VR",
+      video_id: id,
+      authenticated: Boolean(cookieHeader),
+      error: safeError(publicError),
+    });
     if (!cookieHeader) throw publicError;
     if (!authenticatedClient) {
       authenticatedClient = await createClient(cookieHeader, "WEB");
     }
     try {
-      return localizeStream(await resolveWithClient(authenticatedClient, id, qualityKbps));
+      const result = await resolveWithClient(authenticatedClient, "WEB", id, qualityKbps);
+      log("resolve_success", { client: "WEB", video_id: id });
+      return localizeStream(result, id);
     } catch (authenticatedError) {
+      log("resolve_error", {
+        client: "WEB",
+        video_id: id,
+        authenticated: true,
+        error: safeError(authenticatedError),
+      });
       throw new Error(`${safeError(publicError)}; authenticated: ${safeError(authenticatedError)}`);
     }
   }
