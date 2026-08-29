@@ -18,6 +18,7 @@ const argument = (name, fallback = "") => {
 
 const cacheDir = argument("--cache-dir");
 let client = null;
+let iosClient = null;
 let authenticatedClient = null;
 let cookieHeader = "";
 
@@ -193,6 +194,7 @@ const configure = async (nextCookie) => {
     // requirements. Create the authenticated WEB client only if a restricted
     // track needs the user's session.
     client = await createClient("", "ANDROID_VR");
+    iosClient = null;
     authenticatedClient = null;
     cookieHeader = value;
   }
@@ -239,6 +241,7 @@ const resolveWithClient = async (activeClient, clientType, id, qualityKbps) => {
     present: Boolean(streaming),
     formats: streaming?.formats?.length || 0,
     adaptive_formats: streaming?.adaptive_formats?.length || 0,
+    server_abr: Boolean(streaming?.server_abr_streaming_url),
     playability: info.playability_status?.status || "",
     reason: info.playability_status?.reason || "",
   });
@@ -291,7 +294,22 @@ const resolve = async ({ video_id: videoId, quality_kbps: qualityKbps }) => {
       authenticated: Boolean(cookieHeader),
       error: safeError(publicError),
     });
-    if (!cookieHeader) throw publicError;
+    try {
+      if (!iosClient) iosClient = await createClient("", "iOS");
+      const result = await resolveWithClient(iosClient, "iOS", id, qualityKbps);
+      log("resolve_success", { client: "iOS", video_id: id });
+      return localizeStream(result, id);
+    } catch (iosError) {
+      log("resolve_error", {
+        client: "iOS",
+        video_id: id,
+        authenticated: false,
+        error: safeError(iosError),
+      });
+      if (!cookieHeader) {
+        throw new Error(`${safeError(publicError)}; iOS: ${safeError(iosError)}`);
+      }
+    }
     if (!authenticatedClient) {
       authenticatedClient = await createClient(cookieHeader, "WEB");
     }
