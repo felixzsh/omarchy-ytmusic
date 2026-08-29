@@ -3,8 +3,9 @@
 **YouTube Music in Quickshell—not Chromium.**
 
 Omarchy YouTube Music brings search, your library, playlists, and a mini player
-into the Omarchy shell. Audio plays locally through **mpv** and **yt-dlp**, so
-you are not keeping a browser-sized desktop client running. Colors follow your
+into the Omarchy shell. Audio plays locally through **mpv** and a small
+**youtubei.js** resolver, so you are not keeping a browser-sized desktop client
+running. Colors follow your
 active Omarchy theme, including light themes.
 
 This plugin started from [Omarchy Spotify](https://github.com/stappmus/Omarchy-Spotify)
@@ -55,16 +56,17 @@ left/right to adjust a selected slider, and `Esc` to close.
 omarchy plugin add https://github.com/rlimberger/omarchy-ytmusic.git --enable
 ```
 
-Requires **Omarchy 4**, **Python 3**, **mpv**, and **yt-dlp**:
+Requires **Omarchy 4**, **Python 3**, **Node.js**, **npm**, and **mpv**:
 
 ```bash
-omarchy pkg add mpv yt-dlp
+omarchy pkg add mpv nodejs
 ```
 
 The first time you open the player, the plugin installs a user venv with
-[`ytmusicapi`](https://github.com/sigma67/ytmusicapi) and a systemd user unit
-that is **never enabled at login**. The plugin starts it when you play music
-and stops it after the configured idle period. No `sudo` or `pkexec` is
+[`ytmusicapi`](https://github.com/sigma67/ytmusicapi), a local
+[`youtubei.js`](https://github.com/LuanRT/YouTube.js) resolver, and a systemd
+user unit that is **never enabled at login**. The plugin starts it when you play
+music and stops it after the configured idle period. No `sudo` or `pkexec` is
 required.
 
 From a local checkout:
@@ -137,8 +139,9 @@ Want the details? Read the [technical notes](docs/TECHNICAL.md).
 ## Credits
 
 Started from [Omarchy Spotify](https://github.com/stappmus/Omarchy-Spotify) by
-stappmus. Catalog and playback for YouTube Music use
-[ytmusicapi](https://github.com/sigma67/ytmusicapi), **mpv**, and **yt-dlp**.
+stappmus. Catalog and authentication use
+[ytmusicapi](https://github.com/sigma67/ytmusicapi); local playback uses
+[youtubei.js](https://github.com/LuanRT/YouTube.js) and **mpv**.
 
 Omarchy YouTube Music is an independent project and is not affiliated with
 YouTube or Google. YouTube Music is a trademark of Google LLC.

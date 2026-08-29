@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0
+
+- Replace per-track stream processes with a persistent youtubei.js stream resolver.
+- Keep ytmusicapi as the catalog, library, playlist, and authentication client.
+- Cache the YouTube player and resolved stream URLs until their expiry.
+- Remove the generated Netscape cookie file and the old external resolver requirement.
+
 ## 1.1.1
 
 - Keep the playback socket alive while the player is open, and reconnect when it drops.

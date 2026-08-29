@@ -10,24 +10,32 @@ Omarchy YouTube Music runs as a plugin inside Omarchy's existing `omarchy-shell`
 Quickshell process. It provides a shared service, a bar widget, and a
 lazy-loaded panel. There is no embedded website or browser engine.
 
-Catalog data uses the unofficial [`ytmusicapi`](https://github.com/sigma67/ytmusicapi)
-client. Local audio is **mpv**, with stream URLs from **yt-dlp**. mpv is launched
-headless (`--vo=null`, no Wayland/X display) and uses the D-Bus-safe client
-name `omarchy-ytmusic` so MPRIS cannot stall the player. Each track sets
+Catalog data and account operations use the unofficial
+[`ytmusicapi`](https://github.com/sigma67/ytmusicapi) client. Local audio is
+**mpv**, with stream URLs from a persistent Node helper using
+[`youtubei.js`](https://github.com/LuanRT/YouTube.js). The helper uses an
+InnerTube client that returns regular audio URLs for public tracks and retries
+with the authenticated WEB client when the user's session is needed. The
+current YouTube player logic is used when a format needs deciphering. mpv is
+launched headless (`--vo=null`, no Wayland/X display) and uses the D-Bus-safe
+client name `omarchy-ytmusic` so MPRIS cannot stall the player. Each track sets
 `force-media-title` so MPRIS clients show the song name, not the stream URL.
 The plugin
 talks to a private Unix socket at `$XDG_RUNTIME_DIR/omarchy-ytmusic/backend.sock`
 using versioned newline-delimited JSON.
 
 The backend is a Python process supervised by a static systemd user unit that
-is never enabled at login. The plugin starts the unit when a UI is visible or
-you press play, and the backend exits after the configured idle period.
+is never enabled at login. The Node resolver is a child of that backend, so a
+new process is not created for every track. The plugin starts the unit when a
+UI is visible or you press play, and the backend exits after the configured
+idle period.
 
 Omarchy hot-reloads plugins on any write inside their directory, so the venv
 and installed backend live outside the plugin tree:
 
 - `$HOME/.local/share/omarchy-ytmusic/venv`
 - `$HOME/.local/lib/omarchy-ytmusic/`
+- `$HOME/.local/share/omarchy-ytmusic/resolver/`
 - `$HOME/.config/omarchy-ytmusic/browser.json`
 
 ## Protocol
@@ -53,8 +61,8 @@ The usual sign-in path copies the YouTube Music session already in Chromium
 (or Chrome/Brave) on this computer: decrypt the browser cookie database with
 the libsecret OSCrypt key, then write `ytmusicapi` headers with
 `ytmusicapi.setup()`. Pasting request headers is still supported as a
-fallback. Cookies are exported to a Netscape cookie file so yt-dlp can
-resolve member-only or region-locked streams when the session allows it.
+fallback. The cookie header is passed in memory to the local resolver when it
+starts; no Netscape cookie file is generated.
 
 ## Local development
 

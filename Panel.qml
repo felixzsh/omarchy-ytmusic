@@ -1121,7 +1121,7 @@ Item {
         }
         Text {
           width: parent.width
-          text: "Playback uses mpv and yt-dlp on this computer. There is no Chromium and no official YouTube Music desktop client."
+          text: "Playback uses mpv and a local YouTube Music resolver. There is no Chromium and no official YouTube Music desktop client."
           color: Qt.darker(root.foreground, 1.45)
           wrapMode: Text.WordWrap
           font.pixelSize: Style.font.caption
