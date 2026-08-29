@@ -327,7 +327,7 @@ class StreamResolver:
                 "quality_kbps": self.kbps,
             })
             url = str(result.get("url") or "")
-            if not url.startswith("https://"):
+            if not (url.startswith("https://") or url.startswith("http://127.0.0.1:")):
                 raise PlayerError("Resolver returned an invalid audio URL")
             expires = float(result.get("expires_in_seconds") or 4 * 60 * 60)
             self._cache[video_id] = (now + max(60.0, expires - 60.0), url)
