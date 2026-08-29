@@ -11,6 +11,7 @@ fi
 venv_python="$HOME/.local/share/omarchy-ytmusic/venv/bin/python"
 lib_dir="$HOME/.local/lib/omarchy-ytmusic"
 backend_script="$lib_dir/server.py"
+resolver_dir="$HOME/.local/share/omarchy-ytmusic/resolver"
 unit=omarchy-ytmusic.service
 
 sync_backend() {
@@ -24,6 +25,12 @@ sync_backend() {
       updated=0
     fi
   done
+  install -d -m 700 -- "$resolver_dir"
+  if [[ ! -f "$resolver_dir/resolver.mjs" ]] \
+      || ! cmp -s -- "$source_root/backend/resolver/resolver.mjs" "$resolver_dir/resolver.mjs"; then
+    install -m 644 -- "$source_root/backend/resolver/resolver.mjs" "$resolver_dir/resolver.mjs"
+    updated=0
+  fi
   chmod 755 -- "$lib_dir/server.py"
   return "$updated"
 }
@@ -34,7 +41,9 @@ unit_exists() {
 
 runtime_ready() {
   [[ -x $venv_python && -f $backend_script ]] && unit_exists "$unit" \
-    && command -v mpv >/dev/null 2>&1 && command -v yt-dlp >/dev/null 2>&1
+    && [[ -f "$resolver_dir/resolver.mjs" \
+      && -f "$resolver_dir/node_modules/youtubei.js/package.json" ]] \
+    && command -v node >/dev/null 2>&1 && command -v mpv >/dev/null 2>&1
 }
 
 case $action in

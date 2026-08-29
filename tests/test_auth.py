@@ -21,7 +21,6 @@ from auth import (  # noqa: E402
     headers_raw_from_cookies,
     parse_cookie_header,
     unpad_pkcs7,
-    write_netscape_cookies,
 )
 
 
@@ -63,16 +62,6 @@ class AuthTests(unittest.TestCase):
     def test_parse_cookie_header(self):
         pairs = parse_cookie_header("SID=abc; HSID=xyz;  ; broken")
         self.assertEqual(pairs, [("SID", "abc"), ("HSID", "xyz")])
-
-    def test_netscape_export(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            dest = Path(tmp) / "cookies.txt"
-            write_netscape_cookies("SID=secret; __Secure-1PSID=tok", dest)
-            text = dest.read_text(encoding="utf-8")
-            self.assertIn("SID\tsecret", text)
-            self.assertIn("__Secure-1PSID\ttok", text)
-            self.assertIn(".youtube.com", text)
-            self.assertEqual(dest.stat().st_mode & 0o777, 0o600)
 
     def test_headers_raw_from_cookies(self):
         raw = headers_raw_from_cookies(

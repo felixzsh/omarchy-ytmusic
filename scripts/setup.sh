@@ -8,8 +8,8 @@ usage() {
 Usage: scripts/setup.sh
 
 Install the unprivileged YouTube Music playback backend: a user venv with
-ytmusicapi, a copy of the backend outside the plugin tree, and a static
-systemd user unit that is never enabled at login.
+ytmusicapi, a local youtubei.js resolver, copies of both outside the plugin
+tree, and a static systemd user unit that is never enabled at login.
 EOF
 }
 
@@ -18,13 +18,15 @@ if [[ ${1:-} == -h || ${1:-} == --help ]]; then
   exit 0
 fi
 
-for command_name in python3 mpv yt-dlp systemctl install; do
+for command_name in python3 node npm mpv systemctl install; do
   command -v "$command_name" >/dev/null 2>&1 || {
     echo "setup.sh: required command is missing: $command_name" >&2
-    echo "Install mpv and yt-dlp with: omarchy pkg add mpv yt-dlp" >&2
+    echo "Install playback dependencies with: omarchy pkg add mpv nodejs" >&2
     exit 1
   }
 done
+
+node_binary=$(command -v node)
 
 config_root=${XDG_CONFIG_HOME:-"$HOME/.config"}
 data_root=${XDG_DATA_HOME:-"$HOME/.local/share"}
@@ -33,10 +35,12 @@ venv_dir="$data_root/omarchy-ytmusic/venv"
 unit_dir="$config_root/systemd/user"
 unit_file="$unit_dir/omarchy-ytmusic.service"
 auth_dir="$config_root/omarchy-ytmusic"
+resolver_dir="$data_root/omarchy-ytmusic/resolver"
 
 # Never compile or write inside the plugin directory. Omarchy hot-reloads on
 # any write there and would restart the shell mid-setup.
-install -d -m 700 -- "$lib_dir" "$auth_dir" "$unit_dir" "$(dirname -- "$venv_dir")"
+install -d -m 700 -- "$lib_dir" "$auth_dir" "$unit_dir" \
+  "$(dirname -- "$venv_dir")" "$resolver_dir"
 
 install -m 644 -- \
   "$source_root/backend/server.py" \
@@ -47,6 +51,18 @@ install -m 644 -- \
   "$lib_dir/"
 chmod 755 -- "$lib_dir/server.py"
 
+install -m 644 -- \
+  "$source_root/backend/resolver/resolver.mjs" \
+  "$source_root/backend/resolver/package.json" \
+  "$resolver_dir/"
+
+if [[ -f "$source_root/backend/resolver/package-lock.json" ]]; then
+  install -m 644 -- "$source_root/backend/resolver/package-lock.json" "$resolver_dir/"
+  npm ci --omit=dev --no-audit --no-fund --prefix "$resolver_dir"
+else
+  npm install --omit=dev --no-audit --no-fund --prefix "$resolver_dir"
+fi
+
 if [[ ! -x $venv_dir/bin/python ]]; then
   python3 -m venv "$venv_dir"
 fi
@@ -54,7 +70,8 @@ fi
 "$venv_dir/bin/pip" install -r "$source_root/backend/requirements.txt"
 
 # Point the unit at the installed copy. The plugin directory is only a source.
-sed "s|ExecStart=.*|ExecStart=$venv_dir/bin/python $lib_dir/server.py|" \
+sed -e "s|ExecStart=.*|ExecStart=$venv_dir/bin/python $lib_dir/server.py|" \
+  -e "s|Environment=OMARCHY_YTMUSIC_NODE=.*|Environment=OMARCHY_YTMUSIC_NODE=$node_binary|" \
   "$source_root/systemd/omarchy-ytmusic.service" > "$unit_file"
 chmod 644 -- "$unit_file"
 

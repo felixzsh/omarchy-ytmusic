@@ -13,16 +13,11 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from catalog import track_item, watch_url
+from catalog import track_item
 
 
 class PlayerError(RuntimeError):
     pass
-
-
-def quality_format(kbps: int) -> str:
-    rate = 96 if kbps <= 96 else (160 if kbps <= 160 else 320)
-    return f"bestaudio[abr<={rate}]/bestaudio"
 
 
 def media_title(item: dict | None) -> str:
@@ -262,35 +257,81 @@ def _mpris_script() -> str:
 
 
 class StreamResolver:
-    def __init__(self, cookies_path: Path | None = None, kbps: int = 320):
-        self.cookies_path = cookies_path
-        self.kbps = kbps
+    """Resolve YouTube audio in one persistent youtubei.js helper process."""
+
+    def __init__(
+        self,
+        runtime_dir: Path | None = None,
+        kbps: int = 320,
+        resolver_script: Path | None = None,
+    ):
+        self.runtime_dir = runtime_dir or Path(
+            os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/omarchy-ytmusic-{os.getuid()}"
+        )
+        self.kbps = self._normalize_quality(kbps)
+        self.resolver_script = resolver_script or self._default_script()
+        self.cache_dir = self._default_cache_dir()
         self._cache: dict[str, tuple[float, str]] = {}
+        self._cookie_header = ""
+        self._configured_cookie: str | None = None
+        self._process: subprocess.Popen | None = None
+        self._next_id = 1
         self._lock = threading.Lock()
+        self._shutdown = threading.Event()
+
+    @staticmethod
+    def _normalize_quality(kbps: int) -> int:
+        value = int(kbps or 320)
+        return 96 if value <= 96 else (160 if value <= 160 else 320)
+
+    @staticmethod
+    def _default_cache_dir() -> Path:
+        root = Path(os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache"))
+        return root / "omarchy-ytmusic" / "youtubei"
+
+    @staticmethod
+    def _default_script() -> Path:
+        source = Path(__file__).resolve().parent / "resolver" / "resolver.mjs"
+        data_root = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
+        installed = data_root / "omarchy-ytmusic" / "resolver" / "resolver.mjs"
+        return installed if installed.is_file() else source
 
     def set_quality(self, kbps: int) -> None:
-        self.kbps = kbps
+        value = self._normalize_quality(kbps)
         with self._lock:
-            self._cache.clear()
+            if self.kbps != value:
+                self.kbps = value
+                self._cache.clear()
 
-    def set_cookies(self, path: Path | None) -> None:
-        self.cookies_path = path
+    def set_cookie_header(self, header: str) -> None:
+        value = str(header or "").strip()
         with self._lock:
-            self._cache.clear()
+            if self._cookie_header != value:
+                self._cookie_header = value
+                self._configured_cookie = None
+                self._cache.clear()
 
     def resolve(self, video_id: str) -> str:
         video_id = str(video_id or "").strip()
         if not video_id:
             raise PlayerError("Missing video id")
-        now = time.time()
+        if self._shutdown.is_set():
+            raise PlayerError("The stream resolver is shutting down")
         with self._lock:
+            now = time.time()
             cached = self._cache.get(video_id)
             if cached and cached[0] > now:
                 return cached[1]
-        url = self._yt_dlp(video_id)
-        with self._lock:
-            self._cache[video_id] = (now + 4 * 60 * 60, url)
-        return url
+            result = self._request_locked("resolve", {
+                "video_id": video_id,
+                "quality_kbps": self.kbps,
+            })
+            url = str(result.get("url") or "")
+            if not url.startswith("https://"):
+                raise PlayerError("Resolver returned an invalid audio URL")
+            expires = float(result.get("expires_in_seconds") or 4 * 60 * 60)
+            self._cache[video_id] = (now + max(60.0, expires - 60.0), url)
+            return url
 
     def prefetch(self, video_id: str) -> None:
         def worker() -> None:
@@ -300,35 +341,126 @@ class StreamResolver:
                 pass
         threading.Thread(target=worker, daemon=True).start()
 
-    def _yt_dlp(self, video_id: str) -> str:
-        binary = shutil.which("yt-dlp")
-        if not binary:
-            raise PlayerError("yt-dlp is not installed")
-        url = watch_url(video_id)
-        command = [
-            binary,
-            "-f", quality_format(self.kbps),
-            "-g",
-            "--no-playlist",
-            "--no-warnings",
-            "--no-progress",
-            url,
-        ]
-        if self.cookies_path and self.cookies_path.is_file():
-            command[1:1] = ["--cookies", str(self.cookies_path)]
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=40,
-            check=False,
-        )
-        stream = (result.stdout or "").strip().splitlines()
-        if result.returncode != 0 or not stream:
-            detail = (result.stderr or "").strip().splitlines()
-            message = detail[-1] if detail else "Could not resolve audio stream"
-            raise PlayerError(message)
-        return stream[-1]
+    def shutdown(self) -> None:
+        self._shutdown.set()
+        process = self._process
+        self._process = None
+        self._configured_cookie = None
+        if not process or process.poll() is not None:
+            return
+        try:
+            process.terminate()
+            process.wait(timeout=2)
+        except Exception:
+            try:
+                process.kill()
+            except OSError:
+                pass
+
+    def _node_binary(self) -> str:
+        configured = os.environ.get("OMARCHY_YTMUSIC_NODE", "").strip()
+        if configured and os.path.isfile(configured):
+            return configured
+        return shutil.which("node") or ""
+
+    def _start_helper_locked(self) -> None:
+        if self._process and self._process.poll() is None:
+            return
+        if self._process:
+            self._stop_helper_locked()
+        if self._shutdown.is_set():
+            raise PlayerError("The stream resolver is shutting down")
+        node = self._node_binary()
+        if not node:
+            raise PlayerError("node is not installed; run the playback setup")
+        if not self.resolver_script.is_file():
+            raise PlayerError("The YouTube Music stream resolver is not installed")
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.cache_dir.chmod(0o700)
+        except OSError:
+            pass
+        self.runtime_dir.mkdir(parents=True, exist_ok=True)
+        log_path = self.runtime_dir / "resolver.log"
+        log_handle = log_path.open("ab")
+        try:
+            self._process = subprocess.Popen(
+                [node, str(self.resolver_script), "--cache-dir", str(self.cache_dir)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=log_handle,
+                text=True,
+                encoding="utf-8",
+                bufsize=1,
+                cwd=str(self.resolver_script.parent),
+                start_new_session=True,
+            )
+        finally:
+            log_handle.close()
+
+    def _stop_helper_locked(self) -> None:
+        process = self._process
+        self._process = None
+        self._configured_cookie = None
+        if not process:
+            return
+        for stream in (process.stdin, process.stdout):
+            if stream:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+        if process.poll() is None:
+            try:
+                process.terminate()
+                process.wait(timeout=2)
+            except Exception:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+
+    def _request_locked(self, command: str, fields: dict[str, Any]) -> dict[str, Any]:
+        self._start_helper_locked()
+        if self._configured_cookie != self._cookie_header:
+            self._call_locked("configure", {"cookie": self._cookie_header})
+            self._configured_cookie = self._cookie_header
+        return self._call_locked(command, fields)
+
+    def _call_locked(self, command: str, fields: dict[str, Any]) -> dict[str, Any]:
+        process = self._process
+        if not process or not process.stdin or not process.stdout:
+            raise PlayerError("The stream resolver is not running")
+        request_id = self._next_id
+        self._next_id += 1
+        payload = {"id": request_id, "command": command, **fields}
+        try:
+            process.stdin.write(json.dumps(payload) + "\n")
+            process.stdin.flush()
+            ready, _, _ = select.select([process.stdout], [], [], 45.0)
+            if not ready:
+                raise PlayerError("The stream resolver timed out")
+            line = process.stdout.readline()
+        except PlayerError:
+            self._stop_helper_locked()
+            raise
+        except (OSError, ValueError) as exc:
+            self._stop_helper_locked()
+            raise PlayerError("The stream resolver stopped") from exc
+        if not line:
+            raise PlayerError("The stream resolver stopped")
+        try:
+            response = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise PlayerError("The stream resolver returned invalid data") from exc
+        if response.get("id") != request_id:
+            raise PlayerError("The stream resolver response did not match the request")
+        if response.get("ok") is not True:
+            raise PlayerError(str(response.get("error") or "Could not resolve audio stream"))
+        result = response.get("result")
+        if not isinstance(result, dict):
+            raise PlayerError("The stream resolver returned an invalid result")
+        return result
 
 
 class QueuePlayer:
@@ -339,7 +471,7 @@ class QueuePlayer:
         catalog_radio: Callable[[str], list[dict]] | None = None,
     ):
         self.mpv = Mpv(runtime_dir / "mpv.sock")
-        self.resolver = StreamResolver()
+        self.resolver = StreamResolver(runtime_dir=runtime_dir)
         self.on_change = on_change or (lambda: None)
         self.catalog_radio = catalog_radio
         self.queue: list[dict] = []
@@ -385,6 +517,7 @@ class QueuePlayer:
     def shutdown(self) -> None:
         self._stop.set()
         self.mpv.stop()
+        self.resolver.shutdown()
         self.playing = False
 
     def load(self, items: list[dict], index: int = 0, play: bool = True) -> None:

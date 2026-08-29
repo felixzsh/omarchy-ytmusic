@@ -1,0 +1,8 @@
+{
+  "name": "omarchy-ytmusic-stream-resolver",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "youtubei.js": "17.2.0"
+  }
+}

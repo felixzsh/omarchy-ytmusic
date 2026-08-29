@@ -89,12 +89,13 @@ class Backend:
 
         path = auth.resolve_auth_path(str(self.auth_path) if self.auth_path else None)
         self.auth_path = path
+        cookie_header = ""
         try:
             if auth.auth_available(path):
+                headers = auth.load_headers(path)
+                cookie_header = auth.cookie_header(headers)
                 self.catalog = Catalog(YTMusic(str(path)))
                 self.signed_in = True
-                cookies = auth.export_cookies(path)
-                self.player.resolver.set_cookies(cookies)
                 try:
                     info = self.catalog.account()
                     self.account_name = info.get("name") or ""
@@ -104,16 +105,19 @@ class Backend:
                 self.catalog = Catalog(YTMusic())
                 self.signed_in = False
                 self.account_name = ""
+            self.player.resolver.set_cookie_header(cookie_header)
             self.lifecycle = "ready"
             self.error = ""
         except Exception as exc:
             try:
                 self.catalog = Catalog(YTMusic())
                 self.signed_in = False
+                self.player.resolver.set_cookie_header("")
                 self.lifecycle = "ready"
                 self.error = redact(str(exc))
             except Exception as inner:
                 self.catalog = None
+                self.player.resolver.set_cookie_header("")
                 self.lifecycle = "error"
                 self.error = redact(str(inner))
 

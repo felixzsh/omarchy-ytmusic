@@ -18,6 +18,12 @@ python3 "$source_root/tests/test_player.py"
 python3 "$source_root/tests/test_protocol.py"
 python3 "$source_root/tests/test_server.py"
 
+command -v node >/dev/null 2>&1 || {
+  echo "test.sh: node is required to validate the stream resolver" >&2
+  exit 1
+}
+node --check "$source_root/backend/resolver/resolver.mjs"
+
 if command -v qmllint >/dev/null 2>&1; then
   qmllint -I /usr/share/omarchy/shell Api.js \
     ArtistLinks.qml MediaByline.qml MediaRow.qml MediaCollection.qml \
@@ -34,7 +40,7 @@ if [[ -x $qml_test_runner ]]; then
 fi
 
 if command -v rg >/dev/null 2>&1; then
-  if rg -n 'QtWebEngine|WebEngineView|WebView|node_modules|electron' \
+  if rg -n 'QtWebEngine|WebEngineView|WebView|electron' \
     --glob '*.qml' --glob '*.js' --glob '*.sh' --glob '*.service' \
     --glob '!scripts/test.sh' .; then
     echo "test.sh: forbidden heavyweight runtime dependency found" >&2

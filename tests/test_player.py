@@ -15,15 +15,15 @@ from player import (  # noqa: E402
     mpris_title,
     mpv_command_line,
     mpv_env,
-    quality_format,
+    StreamResolver,
 )
 
 
 class PlayerTests(unittest.TestCase):
-    def test_quality_format(self):
-        self.assertIn("96", quality_format(96))
-        self.assertIn("160", quality_format(160))
-        self.assertIn("320", quality_format(320))
+    def test_stream_resolver_normalizes_quality(self):
+        self.assertEqual(StreamResolver._normalize_quality(96), 96)
+        self.assertEqual(StreamResolver._normalize_quality(128), 160)
+        self.assertEqual(StreamResolver._normalize_quality(320), 320)
 
     def test_mpv_command_stays_headless(self):
         command = mpv_command_line("/usr/bin/mpv", Path("/tmp/mpv.sock"), "/lib/mpris.so")
