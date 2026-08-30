@@ -529,6 +529,7 @@ class QueuePlayer:
         self.volume_before_mute = 80
         self.position_ms = 0
         self.duration_ms = 0
+        self._stream_start_ms = 0
         self.error = ""
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -651,6 +652,7 @@ class QueuePlayer:
         resume = self.playing
         if item:
             url = self.resolver.resolve(str(item.get("videoId") or ""), int(seconds * 1000))
+            self._stream_start_ms = int(seconds * 1000)
             self.mpv.command(loadfile_command(url, item))
             self.mpv.command(["set_property", "pause", not resume])
             self.playing = False
@@ -732,6 +734,7 @@ class QueuePlayer:
             raise PlayerError("Nothing is queued")
         video_id = str(item.get("videoId") or "")
         self.error = ""
+        self._stream_start_ms = 0
         self.ensure_started()
         self._publish_title(item)
         try:
@@ -833,9 +836,7 @@ class QueuePlayer:
                         self.playing = value is False
                         changed = True
                     elif prop == "time-pos" and isinstance(value, (int, float)):
-                        # mpv reports the absolute timestamp from the media
-                        # container, including streams opened after a seek.
-                        self.position_ms = int(max(0, value) * 1000)
+                        self.position_ms = self._stream_start_ms + int(max(0, value) * 1000)
                         item = self.current
                         if item:
                             self.resolver.update_position(
@@ -846,7 +847,7 @@ class QueuePlayer:
                         item = self.current
                         self.duration_ms = int(item.get("durationMs") or 0) if item else 0
                         if not self.duration_ms:
-                            self.duration_ms = int(value * 1000)
+                            self.duration_ms = self._stream_start_ms + int(value * 1000)
                         changed = True
                     elif prop == "volume" and isinstance(value, (int, float)):
                         self.volume = int(max(0, min(100, value)))

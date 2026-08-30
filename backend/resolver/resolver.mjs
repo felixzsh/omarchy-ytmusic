@@ -741,13 +741,11 @@ const streamSabrAudio = async function* (entry, response) {
     adapter.setServerAbrFormats(refreshed.formats);
   });
   const startSeconds = Math.max(0, Number(entry.startMs || 0) / 1000);
-  const seekPrerollSeconds = startSeconds > 0 ? 10 : 0;
-  const seekToleranceSeconds = startSeconds > 0 ? 1 : 0;
   // A zero player time is treated as an implicit/default value by SABR. Send
   // an explicit time just before zero so the first media segment is included.
   const requestStartSeconds = startSeconds === 0 ? -10 : startSeconds;
   player.setFallbackTime(startSeconds);
-  player.setMinimumSegmentStart(Math.max(0, startSeconds - seekToleranceSeconds));
+  player.setMinimumSegmentStart(startSeconds);
   playheadSeconds.set(entry.videoId, startSeconds);
   const abortOnClose = () => {
     if (!response.writableEnded) player.dispose();
@@ -755,9 +753,7 @@ const streamSabrAudio = async function* (entry, response) {
   response.once("close", abortOnClose);
 
   try {
-    const firstMediaSeconds = startSeconds === 0
-      ? 0.001
-      : Math.max(0, startSeconds - seekPrerollSeconds);
+    const firstMediaSeconds = startSeconds === 0 ? 0.001 : startSeconds;
     const firstMedia = await player.fetchSegment(
       entry.sabr.audioFormat,
       firstMediaSeconds,
