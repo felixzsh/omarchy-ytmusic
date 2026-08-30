@@ -278,6 +278,9 @@ class StreamResolver:
         self._next_id = 1
         self._lock = threading.Lock()
         self._shutdown = threading.Event()
+        self._position_lock = threading.Lock()
+        self._pending_position: tuple[str, int] | None = None
+        self._position_thread: threading.Thread | None = None
 
     @staticmethod
     def _normalize_quality(kbps: int) -> int:
@@ -311,26 +314,30 @@ class StreamResolver:
                 self._configured_cookie = None
                 self._cache.clear()
 
-    def resolve(self, video_id: str) -> str:
+    def resolve(self, video_id: str, start_ms: int = 0) -> str:
         video_id = str(video_id or "").strip()
         if not video_id:
             raise PlayerError("Missing video id")
+        start_ms = max(0, int(start_ms or 0))
         if self._shutdown.is_set():
             raise PlayerError("The stream resolver is shutting down")
         with self._lock:
             now = time.time()
-            cached = self._cache.get(video_id)
-            if cached and cached[0] > now:
-                return cached[1]
+            if not start_ms:
+                cached = self._cache.get(video_id)
+                if cached and cached[0] > now:
+                    return cached[1]
             result = self._request_locked("resolve", {
                 "video_id": video_id,
                 "quality_kbps": self.kbps,
+                "start_ms": start_ms,
             })
             url = str(result.get("url") or "")
             if not (url.startswith("https://") or url.startswith("http://127.0.0.1:")):
                 raise PlayerError("Resolver returned an invalid audio URL")
             expires = float(result.get("expires_in_seconds") or 4 * 60 * 60)
-            self._cache[video_id] = (now + max(60.0, expires - 60.0), url)
+            if not start_ms:
+                self._cache[video_id] = (now + max(60.0, expires - 60.0), url)
             return url
 
     def prefetch(self, video_id: str) -> None:
@@ -341,8 +348,46 @@ class StreamResolver:
                 pass
         threading.Thread(target=worker, daemon=True).start()
 
+    def update_position(self, video_id: str, position_ms: int) -> None:
+        video_id = str(video_id or "").strip()
+        if not video_id or self._shutdown.is_set():
+            return
+        with self._lock:
+            if not self._process or self._process.poll() is not None:
+                return
+        with self._position_lock:
+            self._pending_position = (video_id, max(0, int(position_ms or 0)))
+            if self._position_thread and self._position_thread.is_alive():
+                return
+            self._position_thread = threading.Thread(
+                target=self._flush_positions,
+                daemon=True,
+            )
+            self._position_thread.start()
+
+    def _flush_positions(self) -> None:
+        while not self._shutdown.is_set():
+            with self._position_lock:
+                pending = self._pending_position
+                self._pending_position = None
+            if pending is None:
+                with self._position_lock:
+                    self._position_thread = None
+                return
+            try:
+                with self._lock:
+                    if self._process and self._process.poll() is None:
+                        self._request_locked("position", {
+                            "video_id": pending[0],
+                            "position_ms": pending[1],
+                        })
+            except Exception:
+                return
+
     def shutdown(self) -> None:
         self._shutdown.set()
+        with self._position_lock:
+            self._pending_position = None
         process = self._process
         self._process = None
         self._configured_cookie = None
@@ -484,6 +529,7 @@ class QueuePlayer:
         self.volume_before_mute = 80
         self.position_ms = 0
         self.duration_ms = 0
+        self._stream_start_ms = 0
         self.error = ""
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -602,7 +648,12 @@ class QueuePlayer:
         if not self.mpv.running:
             return
         seconds = max(0, int(position_ms or 0)) / 1000.0
-        self.mpv.command(["seek", seconds, "absolute"])
+        item = self.current
+        if item:
+            url = self.resolver.resolve(str(item.get("videoId") or ""), int(seconds * 1000))
+            self._stream_start_ms = int(seconds * 1000)
+            self.mpv.command(loadfile_command(url, item))
+            self.mpv.command(["set_property", "pause", not self.playing])
         self.position_ms = int(seconds * 1000)
         self.note_activity()
         self.on_change()
@@ -681,6 +732,7 @@ class QueuePlayer:
             raise PlayerError("Nothing is queued")
         video_id = str(item.get("videoId") or "")
         self.error = ""
+        self._stream_start_ms = 0
         self.ensure_started()
         self._publish_title(item)
         try:
@@ -780,9 +832,18 @@ class QueuePlayer:
                         self.playing = value is False
                         changed = True
                     elif prop == "time-pos" and isinstance(value, (int, float)):
-                        self.position_ms = int(max(0, value) * 1000)
+                        self.position_ms = self._stream_start_ms + int(max(0, value) * 1000)
+                        item = self.current
+                        if item:
+                            self.resolver.update_position(
+                                str(item.get("videoId") or ""),
+                                self.position_ms,
+                            )
                     elif prop == "duration" and isinstance(value, (int, float)) and value > 0:
-                        self.duration_ms = int(value * 1000)
+                        item = self.current
+                        self.duration_ms = int(item.get("durationMs") or 0) if item else 0
+                        if not self.duration_ms:
+                            self.duration_ms = self._stream_start_ms + int(value * 1000)
                         changed = True
                     elif prop == "volume" and isinstance(value, (int, float)):
                         self.volume = int(max(0, min(100, value)))

@@ -13,10 +13,14 @@ lazy-loaded panel. There is no embedded website or browser engine.
 Catalog data and account operations use the unofficial
 [`ytmusicapi`](https://github.com/sigma67/ytmusicapi) client. Local audio is
 **mpv**, with stream URLs from a persistent Node helper using
-[`youtubei.js`](https://github.com/LuanRT/YouTube.js). The helper uses an
-InnerTube client that returns regular audio URLs for public tracks and retries
-with the authenticated WEB client when the user's session is needed. The
-current YouTube player logic is used when a format needs deciphering. mpv is
+[`youtubei.js`](https://github.com/LuanRT/YouTube.js) and
+[`googlevideo`](https://github.com/LuanRT/googlevideo). The helper uses an
+authenticated browser-like InnerTube session, generates a content-bound Web
+PO token per video, and requests audio through YouTube's SABR/UMP protocol.
+`SabrStreamingAdapter` builds the protobuf requests, `SabrUmpProcessor` handles
+protocol directives, and the helper extracts media clusters from UMP responses.
+It exposes those clusters as one local chunked HTTP response; it does not make
+direct `googlevideo` range requests. mpv is
 launched headless (`--vo=null`, no Wayland/X display) and uses the D-Bus-safe
 client name `omarchy-ytmusic` so MPRIS cannot stall the player. Each track sets
 `force-media-title` so MPRIS clients show the song name, not the stream URL.
@@ -37,6 +41,11 @@ and installed backend live outside the plugin tree:
 - `$HOME/.local/lib/omarchy-ytmusic/`
 - `$HOME/.local/share/omarchy-ytmusic/resolver/`
 - `$HOME/.config/omarchy-ytmusic/browser.json`
+
+Resolver diagnostics are written to
+`$XDG_RUNTIME_DIR/omarchy-ytmusic/resolver.log`; cookies, PO tokens, and stream
+URLs are redacted. The local SABR response is intentionally non-seekable:
+Python relaunches a new resolver stream with `start_ms` when the user seeks.
 
 ## Protocol
 

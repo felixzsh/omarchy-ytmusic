@@ -26,6 +26,17 @@ sync_backend() {
     fi
   done
   install -d -m 700 -- "$resolver_dir"
+  if [[ -f $source_root/backend/resolver/package.json ]] \
+      && { [[ ! -f "$resolver_dir/package.json" ]] \
+        || ! cmp -s -- "$source_root/backend/resolver/package.json" "$resolver_dir/package.json" \
+        || ! cmp -s -- "$source_root/backend/resolver/package-lock.json" "$resolver_dir/package-lock.json"; }; then
+    install -m 644 -- \
+      "$source_root/backend/resolver/package.json" \
+      "$source_root/backend/resolver/package-lock.json" \
+      "$resolver_dir/"
+    npm ci --omit=dev --no-audit --no-fund --prefix "$resolver_dir"
+    updated=0
+  fi
   if [[ ! -f "$resolver_dir/resolver.mjs" ]] \
       || ! cmp -s -- "$source_root/backend/resolver/resolver.mjs" "$resolver_dir/resolver.mjs"; then
     install -m 644 -- "$source_root/backend/resolver/resolver.mjs" "$resolver_dir/resolver.mjs"
@@ -42,7 +53,9 @@ unit_exists() {
 runtime_ready() {
   [[ -x $venv_python && -f $backend_script ]] && unit_exists "$unit" \
     && [[ -f "$resolver_dir/resolver.mjs" \
-      && -f "$resolver_dir/node_modules/youtubei.js/package.json" ]] \
+      && -f "$resolver_dir/node_modules/youtubei.js/package.json" \
+      && -f "$resolver_dir/node_modules/googlevideo/package.json" \
+      && -f "$resolver_dir/node_modules/bgutils-js/package.json" ]] \
     && command -v node >/dev/null 2>&1 && command -v mpv >/dev/null 2>&1
 }
 
