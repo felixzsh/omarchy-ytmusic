@@ -649,11 +649,13 @@ class QueuePlayer:
             return
         seconds = max(0, int(position_ms or 0)) / 1000.0
         item = self.current
+        resume = self.playing
         if item:
             url = self.resolver.resolve(str(item.get("videoId") or ""), int(seconds * 1000))
             self._stream_start_ms = int(seconds * 1000)
             self.mpv.command(loadfile_command(url, item))
-            self.mpv.command(["set_property", "pause", not self.playing])
+            self.mpv.command(["set_property", "pause", not resume])
+            self.playing = False
         self.position_ms = int(seconds * 1000)
         self.note_activity()
         self.on_change()
@@ -740,7 +742,9 @@ class QueuePlayer:
             self._publish_title(item)
             self.mpv.command(loadfile_command(url, item))
             self.mpv.command(["set_property", "pause", not start])
-            self.playing = start
+            # Wait for mpv's playback-restart event before advancing the UI
+            # clock; loadfile may spend time buffering the first segment.
+            self.playing = False
             self.position_ms = 0
             self.duration_ms = int(item.get("durationMs") or 0)
         except Exception as exc:
@@ -870,6 +874,8 @@ class QueuePlayer:
                         self.error = self.error or "Playback failed"
                         changed = True
             if eof and self.playing:
+                if self.duration_ms > 0:
+                    self.position_ms = self.duration_ms
                 if self._advance():
                     try:
                         self._play_current(start=True)
