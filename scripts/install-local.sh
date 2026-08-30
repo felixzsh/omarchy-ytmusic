@@ -46,7 +46,7 @@ omarchy plugin validate "$source_root"
 "$source_root/scripts/setup.sh"
 
 plugins_root="${XDG_CONFIG_HOME:-"$HOME/.config"}/omarchy/plugins"
-target="$plugins_root/quickshell.ytmusic"
+target="$plugins_root/felixzsh.ytmusic"
 install -d -m 700 -- "$plugins_root"
 
 if [[ -L $target && $(readlink -f -- "$target") == "$source_root" ]]; then
@@ -62,16 +62,16 @@ fi
 omarchy-shell shell rescanPlugins >/dev/null || true
 discovered=0
 for (( attempt = 0; attempt < 40; attempt++ )); do
-  if omarchy plugin list --json | python3 -c 'import json,sys; data=json.load(sys.stdin); raise SystemExit(0 if any(item.get("id")=="quickshell.ytmusic" for item in data) else 1)'; then
+  if omarchy plugin list --json | python3 -c 'import json,sys; data=json.load(sys.stdin); raise SystemExit(0 if any(item.get("id")=="felixzsh.ytmusic" for item in data) else 1)'; then
     discovered=1
     break
   fi
   sleep 0.05
 done
 (( discovered )) || {
-  echo "install-local.sh: Omarchy did not discover quickshell.ytmusic" >&2
+  echo "install-local.sh: Omarchy did not discover felixzsh.ytmusic" >&2
   exit 1
 }
 
-omarchy plugin enable quickshell.ytmusic --section "$section"
+omarchy plugin enable felixzsh.ytmusic --section "$section"
 echo "Installed. Click the YouTube Music bar widget to sign in and play."

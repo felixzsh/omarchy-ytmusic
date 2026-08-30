@@ -53,7 +53,7 @@ left/right to adjust a selected slider, and `Esc` to close.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/rlimberger/omarchy-ytmusic.git --enable
+omarchy plugin add https://github.com/felixzsh/omarchy-ytmusic.git --enable
 ```
 
 Requires **Omarchy 4**, **Python 3**, **Node.js**, **npm**, and **mpv**:
@@ -84,7 +84,7 @@ To replace Omarchy's existing **Super+Shift+M · Music** binding, add this to
 ```lua
   hl.unbind("SUPER + SHIFT + M") -- previously: Music
   o.bind("SUPER + SHIFT + M", "Omarchy YouTube Music",
-    "omarchy shell -q quickshell.ytmusic.player togglePlayer")
+    "omarchy shell -q felixzsh.ytmusic.player togglePlayer")
 ```
 
 Run `hyprctl reload` and check `hyprctl configerrors` after saving. In Settings,
@@ -112,8 +112,8 @@ Your password is entered only on Google's own page. Headers are stored in
 While the plugin is still installed:
 
 ```bash
-~/.config/omarchy/plugins/quickshell.ytmusic/scripts/remove-runtime.sh --purge
-omarchy plugin remove quickshell.ytmusic
+~/.config/omarchy/plugins/felixzsh.ytmusic/scripts/remove-runtime.sh --purge
+omarchy plugin remove felixzsh.ytmusic
 ```
 
 That stops the user unit and deletes:

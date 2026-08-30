@@ -10,10 +10,10 @@ import "Api.js" as Api
 BarWidget {
   id: root
 
-  moduleName: "quickshell.ytmusic"
+  moduleName: "felixzsh.ytmusic"
 
   readonly property var ytmusic: bar && bar.shell
-    ? bar.shell.serviceFor("quickshell.ytmusic") : null
+    ? bar.shell.serviceFor("felixzsh.ytmusic") : null
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property string surfaceKey: "ytmusic-popup-" + String(root)
   readonly property string lyricsRequestKey: surfaceKey + "-lyrics"
@@ -143,14 +143,14 @@ BarWidget {
     var encoded = JSON.stringify(payload || ({}))
     if (typeof bar.shell.hide === "function"
         && typeof bar.shell.summon === "function") {
-      bar.shell.hide("quickshell.ytmusic")
+      bar.shell.hide("felixzsh.ytmusic")
       Qt.callLater(function() {
         if (root.bar && root.bar.shell)
-          root.bar.shell.summon("quickshell.ytmusic", encoded)
+          root.bar.shell.summon("felixzsh.ytmusic", encoded)
       })
     } else if (payload && typeof bar.shell.summon === "function")
-      bar.shell.summon("quickshell.ytmusic", encoded)
-    else bar.shell.toggle("quickshell.ytmusic", encoded)
+      bar.shell.summon("felixzsh.ytmusic", encoded)
+    else bar.shell.toggle("felixzsh.ytmusic", encoded)
   }
 
   IpcHandler {

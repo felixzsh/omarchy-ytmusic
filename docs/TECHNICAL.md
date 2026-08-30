@@ -90,5 +90,5 @@ Complete removal:
 
 ```bash
 ./scripts/remove-runtime.sh --purge
-omarchy plugin remove quickshell.ytmusic --yes
+omarchy plugin remove felixzsh.ytmusic --yes
 ```

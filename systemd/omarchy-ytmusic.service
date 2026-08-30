@@ -1,6 +1,6 @@
 [Unit]
 Description=Omarchy YouTube Music plugin playback backend
-Documentation=https://github.com/rlimberger/omarchy-ytmusic
+Documentation=https://github.com/felixzsh/omarchy-ytmusic
 After=graphical-session.target sound.target
 Wants=sound.target
 

@@ -16,7 +16,7 @@ Item {
   property var pluginRegistry: null
 
   readonly property string pluginId: manifest && manifest.id
-    ? String(manifest.id) : "quickshell.ytmusic"
+    ? String(manifest.id) : "felixzsh.ytmusic"
   readonly property string pluginDir: manifest && manifest.__sourceDir
     ? String(manifest.__sourceDir) : ""
 

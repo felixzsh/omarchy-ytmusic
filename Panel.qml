@@ -46,7 +46,7 @@ Item {
   property string newPlaylistName: ""
 
   readonly property string pluginId: manifest && manifest.id
-    ? String(manifest.id) : "quickshell.ytmusic"
+    ? String(manifest.id) : "felixzsh.ytmusic"
   readonly property string lyricsRequestKey: "ytmusic-panel-lyrics"
   readonly property color foreground: Color.foreground
   readonly property color background: Color.background

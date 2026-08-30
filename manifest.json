@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "quickshell.ytmusic",
+  "id": "felixzsh.ytmusic",
   "name": "Omarchy YouTube Music",
   "version": "1.2.0",
-  "author": "rlimberger",
+  "author": "felixzsh",
   "license": "MIT",
   "description": "YouTube Music in Quickshell—not Chromium. Search, library, playlists, and a mini player, with local mpv playback.",
   "kinds": [
