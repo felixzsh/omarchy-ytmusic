@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
@@ -17,6 +18,7 @@ from player import (  # noqa: E402
     mpv_env,
     StreamResolver,
     QueuePlayer,
+    PlayerError,
 )
 
 
@@ -123,6 +125,46 @@ class PlayerTests(unittest.TestCase):
         self.assertTrue(player.playing)
         self.assertEqual(player.position_ms, 155000)
         self.assertEqual(states, [False, True])
+
+    def test_next_skips_track_after_retries(self):
+        player = QueuePlayer(Path("/tmp/omarchy-ytmusic-test"))
+        player.queue = [
+            {"videoId": "first"},
+            {"videoId": "broken"},
+            {"videoId": "third"},
+        ]
+        player.index = 0
+        calls = []
+
+        def fake_play(start=True, expose_error=True):
+            calls.append(player.current["videoId"])
+            if player.current["videoId"] == "broken":
+                raise PlayerError("PMD:Undefined")
+            player.playing = True
+
+        player._play_current = fake_play
+        with patch("player.time.sleep"):
+            player.next()
+
+        self.assertEqual(player.index, 2)
+        self.assertTrue(player.playing)
+        self.assertEqual(calls, ["broken", "broken", "broken", "third"])
+        self.assertEqual(player.error, "")
+
+    def test_next_reports_only_when_queue_is_exhausted(self):
+        player = QueuePlayer(Path("/tmp/omarchy-ytmusic-test"))
+        player.queue = [{"videoId": "first"}, {"videoId": "broken"}]
+        player.index = 0
+
+        def fake_play(start=True, expose_error=True):
+            raise PlayerError("PMD:Undefined")
+
+        player._play_current = fake_play
+        with patch("player.time.sleep"):
+            player.next()
+
+        self.assertFalse(player.playing)
+        self.assertEqual(player.error, "PMD:Undefined")
 
 
 if __name__ == "__main__":

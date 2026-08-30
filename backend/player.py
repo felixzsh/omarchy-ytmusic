@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import select
 import shutil
@@ -14,6 +15,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from catalog import track_item
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class PlayerError(RuntimeError):
@@ -644,7 +648,9 @@ class QueuePlayer:
     def next(self) -> None:
         self.note_activity()
         if self._advance():
-            self._play_current(start=True)
+            if not self._play_next_with_recovery():
+                self.playing = False
+                self.on_change()
         else:
             self.playing = False
             self.on_change()
@@ -751,7 +757,7 @@ class QueuePlayer:
         except Exception:
             pass
 
-    def _play_current(self, start: bool = True) -> None:
+    def _play_current(self, start: bool = True, expose_error: bool = True) -> None:
         item = self.current
         if not item:
             raise PlayerError("Nothing is queued")
@@ -775,9 +781,11 @@ class QueuePlayer:
             self.position_ms = 0
             self.duration_ms = int(item.get("durationMs") or 0)
         except Exception as exc:
-            self.error = str(exc)
+            if expose_error:
+                self.error = str(exc)
             self.playing = False
-            self.on_change()
+            if expose_error:
+                self.on_change()
             raise PlayerError(str(exc)) from exc
         nxt = self._upcoming_video_id()
         if nxt:
@@ -813,6 +821,67 @@ class QueuePlayer:
             if added:
                 self.on_change()
         threading.Thread(target=worker, daemon=True).start()
+
+    def _play_current_with_retries(self, attempts: int = 3) -> PlayerError | None:
+        last_error = None
+        for attempt in range(1, attempts + 1):
+            try:
+                self._play_current(start=True, expose_error=False)
+                return None
+            except PlayerError as exc:
+                last_error = exc
+                LOGGER.warning(
+                    "track playback failed video_id=%s attempt=%d/%d error=%s",
+                    (self.current or {}).get("videoId", ""),
+                    attempt,
+                    attempts,
+                    exc,
+                )
+                if attempt < attempts:
+                    time.sleep(0.25 * (2 ** (attempt - 1)))
+        return last_error
+
+    def _next_index_after_failure(self, failed: set[int]) -> int | None:
+        if self.shuffle:
+            import random
+
+            choices = [
+                index for index in range(len(self.queue))
+                if index not in failed and index != self.index
+            ]
+            if choices:
+                return random.choice(choices)
+        for index in range(self.index + 1, len(self.queue)):
+            if index not in failed:
+                return index
+        if self.repeat == "context":
+            for index in range(len(self.queue)):
+                if index not in failed:
+                    return index
+        return None
+
+    def _play_next_with_recovery(self) -> bool:
+        failed: set[int] = set()
+        last_error = None
+        while len(failed) < len(self.queue):
+            if self.index in failed:
+                self.error = str(last_error or "Playback failed")
+                return False
+            failed.add(self.index)
+            last_error = self._play_current_with_retries()
+            if last_error is None:
+                return True
+            next_index = self._next_index_after_failure(failed)
+            if next_index is None:
+                self.error = str(last_error)
+                return False
+            LOGGER.warning(
+                "skipping unplayable track video_id=%s",
+                (self.current or {}).get("videoId", ""),
+            )
+            self.index = next_index
+        self.error = str(last_error or "Playback failed")
+        return False
 
     def _advance(self) -> bool:
         if self._sleep_after == "track":
@@ -941,9 +1010,7 @@ class QueuePlayer:
                 if self.duration_ms > 0:
                     self.position_ms = self.duration_ms
                 if self._advance():
-                    try:
-                        self._play_current(start=True)
-                    except Exception:
+                    if not self._play_next_with_recovery():
                         self.playing = False
                         changed = True
                 else:
