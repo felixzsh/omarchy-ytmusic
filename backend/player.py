@@ -530,6 +530,8 @@ class QueuePlayer:
         self.position_ms = 0
         self.duration_ms = 0
         self._stream_start_ms = 0
+        self._stream_started = False
+        self._stream_position_mode: str | None = None
         self.error = ""
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -653,6 +655,8 @@ class QueuePlayer:
         if item:
             url = self.resolver.resolve(str(item.get("videoId") or ""), int(seconds * 1000))
             self._stream_start_ms = int(seconds * 1000)
+            self._stream_started = False
+            self._stream_position_mode = None
             self.mpv.command(loadfile_command(url, item))
             self.mpv.command(["set_property", "pause", not resume])
             self.playing = False
@@ -735,6 +739,8 @@ class QueuePlayer:
         video_id = str(item.get("videoId") or "")
         self.error = ""
         self._stream_start_ms = 0
+        self._stream_started = False
+        self._stream_position_mode = None
         self.ensure_started()
         self._publish_title(item)
         try:
@@ -833,10 +839,25 @@ class QueuePlayer:
                     prop = event.get("name")
                     value = event.get("data")
                     if prop == "pause":
-                        self.playing = value is False
-                        changed = True
+                        if self._stream_started or value is True:
+                            self.playing = value is False
+                            changed = True
                     elif prop == "time-pos" and isinstance(value, (int, float)):
-                        self.position_ms = self._stream_start_ms + int(max(0, value) * 1000)
+                        if not self._stream_started:
+                            continue
+                        raw_ms = int(max(0, value) * 1000)
+                        if self._stream_position_mode is None:
+                            if self._stream_start_ms <= 2000:
+                                self._stream_position_mode = "relative"
+                            elif raw_ms >= self._stream_start_ms - 1000:
+                                self._stream_position_mode = "absolute"
+                            else:
+                                self._stream_position_mode = "relative"
+                        self.position_ms = (
+                            raw_ms
+                            if self._stream_position_mode == "absolute"
+                            else self._stream_start_ms + raw_ms
+                        )
                         item = self.current
                         if item:
                             self.resolver.update_position(
@@ -859,12 +880,17 @@ class QueuePlayer:
                             looks_like_stream_title(shown) or shown != self._display_title
                         ):
                             self._publish_title()
-                elif name in ("file-loaded", "playback-restart"):
+                elif name == "file-loaded":
+                    self._stream_started = False
+                    self._stream_position_mode = None
                     self._publish_title()
-                    if name == "playback-restart":
-                        self.playing = True
-                        self.error = ""
-                        changed = True
+                elif name == "playback-restart":
+                    self._publish_title()
+                    self._stream_started = True
+                    self._stream_position_mode = None
+                    self.playing = True
+                    self.error = ""
+                    changed = True
                 elif name == "end-file":
                     reason = str(event.get("reason") or "")
                     if reason in ("eof", "0"):

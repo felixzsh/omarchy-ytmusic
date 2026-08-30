@@ -102,12 +102,22 @@ Item {
   }
 
   onWantedChanged: {
-    if (wanted) return
+    if (wanted) {
+      reconnectTimer.restart()
+      return
+    }
     tearDownSocket()
     resetPending("YouTube Music stopped")
   }
 
-  onConnectedChanged: if (connected) reconnectAttempt = 0
+  onConnectedChanged: {
+    if (connected) {
+      reconnectAttempt = 0
+      reconnectTimer.stop()
+    } else if (wanted) {
+      reconnectTimer.restart()
+    }
+  }
 
   Component {
     id: socketComponent
@@ -145,8 +155,12 @@ Item {
     interval: Math.min(1500, 180 + root.reconnectAttempt * 120)
     repeat: true
     triggeredOnStart: true
-    running: root.wanted && !root.connected
+    running: false
     onTriggered: {
+      if (!root.wanted || root.connected) {
+        stop()
+        return
+      }
       root.reconnectAttempt = Math.min(24, root.reconnectAttempt + 1)
       if (socketLoader.active) {
         socketLoader.active = false
