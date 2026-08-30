@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 - Normalize relative and absolute `mpv` timestamps per stream for reliable seeks.
 - Start SABR seeks with a segment preroll so irregular segment boundaries do not
@@ -12,8 +12,6 @@
 - Serve remote artwork through a bounded local proxy to avoid Qt/OpenSSL image
   loader crashes in Quickshell.
 - Document that local playback no longer requires `yt-dlp`.
-
-## 1.2.0
 
 - Replace per-track stream processes with a persistent youtubei.js stream resolver.
 - Keep ytmusicapi as the catalog, library, playlist, and authentication client.
