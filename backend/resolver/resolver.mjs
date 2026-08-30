@@ -75,6 +75,7 @@ const log = (event, fields = {}) => {
 
 const poTokenRequestKey = "O43z0dpjhgX20SCx4KAo";
 const nativeFetch = globalThis.fetch.bind(globalThis);
+const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const createFetch = (cookie) => async (input, init = {}) => {
   const headers = new Headers(
@@ -110,11 +111,12 @@ const getPoIntegrityToken = async (botguardResponse, fetch) => {
   };
 };
 
-const mintWebPoToken = async (client, contentBinding, fetch) => {
+const createPoSession = async (fetch) => {
   const previousWindow = globalThis.window;
   const previousDocument = globalThis.document;
   const window = new Window({ width: 1280, height: 720, console });
   Object.assign(globalThis, { window, document: window.document });
+  let botguard = null;
   try {
     const challenge = await getChallenge({
       requestKey: poTokenRequestKey,
@@ -141,30 +143,55 @@ const mintWebPoToken = async (client, contentBinding, fetch) => {
       new Function(interpreterJavascript)();
     }
 
-    const botguard = await BotGuardClient.create({
+    botguard = await BotGuardClient.create({
       program: challenge.program,
       globalName: challenge.globalName,
       globalObject: globalThis,
     });
-    try {
-      const webPoSignalOutput = [];
-      const botguardResponse = await botguard.snapshot({ webPoSignalOutput });
-      for (let waitAttempt = 0;
-        typeof webPoSignalOutput[0] !== "function" && waitAttempt < 20;
-        waitAttempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-      log("po_signal_ready", {
-        video_id: contentBinding,
-        output_count: webPoSignalOutput.length,
-        first_output: typeof webPoSignalOutput[0],
-      });
-      const integrityToken = await getPoIntegrityToken(botguardResponse, fetch);
-      const minter = await WebPoMinter.create(integrityToken, webPoSignalOutput);
-      return await minter.mintAsWebsafeString(contentBinding);
-    } finally {
-      await botguard.shutdown().catch(() => {});
+    const webPoSignalOutput = [];
+    const botguardResponse = await botguard.snapshot({ webPoSignalOutput });
+    for (let waitAttempt = 0;
+      typeof webPoSignalOutput[0] !== "function" && waitAttempt < 60;
+      waitAttempt += 1) {
+      await sleep(50);
     }
+    log("po_signal_ready", {
+      output_count: webPoSignalOutput.length,
+      first_output: typeof webPoSignalOutput[0],
+    });
+    if (typeof webPoSignalOutput[0] !== "function") {
+      throw new Error("BotGuard WebPO minter unavailable");
+    }
+    const integrityToken = await getPoIntegrityToken(botguardResponse, fetch);
+    const minter = await WebPoMinter.create(integrityToken, webPoSignalOutput);
+    const ttlSeconds = Math.max(
+      30,
+      (Number(integrityToken.estimatedTtlSecs) || 300) - 15,
+    );
+    return {
+      botguard,
+      minter,
+      window,
+      document: window.document,
+      expiresAt: Date.now() + ttlSeconds * 1000,
+    };
+  } catch (error) {
+    if (botguard) await botguard.shutdown().catch(() => {});
+    throw error;
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+};
+
+const usePoSession = async (session, operation) => {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  Object.assign(globalThis, { window: session.window, document: session.document });
+  try {
+    return await operation();
   } finally {
     if (previousWindow === undefined) delete globalThis.window;
     else globalThis.window = previousWindow;
@@ -176,6 +203,9 @@ const mintWebPoToken = async (client, contentBinding, fetch) => {
 const streamUrls = new Map();
 const playheadSeconds = new Map();
 const poTokens = new Map();
+let poSession = null;
+let poSessionPromise = null;
+let poMintWork = Promise.resolve();
 let streamBase = "";
 
 const pruneStreamUrls = () => {
@@ -534,12 +564,69 @@ const configure = async (nextCookie) => {
     changed: !client || value !== cookieHeader,
   });
   if (!client || value !== cookieHeader) {
+    await poMintWork.catch(() => {});
+    await invalidatePoSession();
     // Pear uses one browser-like client and the YouTube Music endpoint.
     client = await createClient(value, "WEB");
     cookieHeader = value;
     poTokens.clear();
   }
   return { signed_in: Boolean(cookieHeader) };
+};
+
+const invalidatePoSession = async (session = poSession) => {
+  if (!session || poSession !== session) return;
+  poSession = null;
+  await session.botguard.shutdown().catch(() => {});
+};
+
+const getPoSession = async (fetch) => {
+  if (poSession && poSession.expiresAt > Date.now()) return poSession;
+  if (poSession) await invalidatePoSession();
+  if (!poSessionPromise) {
+    poSessionPromise = createPoSession(fetch)
+      .then((session) => {
+        poSession = session;
+        return session;
+      })
+      .finally(() => {
+        poSessionPromise = null;
+      });
+  }
+  return poSessionPromise;
+};
+
+const mintWebPoTokenLocked = async (contentBinding, fetch) => {
+  let lastError;
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    let session = null;
+    try {
+      session = await getPoSession(fetch);
+      const token = await usePoSession(session, () =>
+        session.minter.mintAsWebsafeString(contentBinding));
+      return {
+        token,
+        expiresAt: Math.min(Date.now() + 5 * 60 * 1000, session.expiresAt),
+      };
+    } catch (error) {
+      lastError = error;
+      log("po_token_attempt_error", {
+        video_id: contentBinding,
+        attempt,
+        error: safeError(error),
+      });
+      if (session) await invalidatePoSession(session);
+      if (attempt < 4) await sleep(250 * (2 ** (attempt - 1)));
+    }
+  }
+  throw lastError || new Error("Could not mint PO token");
+};
+
+const mintWebPoToken = (contentBinding, fetch) => {
+  const work = poMintWork.then(() =>
+    mintWebPoTokenLocked(contentBinding, fetch));
+  poMintWork = work.catch(() => {});
+  return work;
 };
 
 const bitrate = (format) => Number(
@@ -612,33 +699,37 @@ const loadSabrData = async (
 ) => {
   let poToken = poTokens.get(videoId);
   if (!poToken || poToken.expiresAt <= Date.now()) {
-    let lastError;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        poToken = {
-          token: await mintWebPoToken(activeClient, videoId, fetch),
-          expiresAt: Date.now() + 5 * 60 * 1000,
-        };
-        poTokens.set(videoId, poToken);
-        break;
-      } catch (error) {
-        lastError = error;
-        log("po_token_attempt_error", {
-          video_id: videoId,
-          attempt,
-          error: safeError(error),
-        });
-      }
-    }
-    if (!poToken?.token) throw lastError || new Error("Could not mint PO token");
+    poToken = await mintWebPoToken(videoId, fetch);
+    poTokens.set(videoId, poToken);
   }
 
-  const info = await loadPlayerInfo(
-    activeClient,
-    videoId,
-    poToken.token,
-    reloadPlaybackContext,
-  );
+  let info;
+  let lastInfoError;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      info = await loadPlayerInfo(
+        activeClient,
+        videoId,
+        poToken.token,
+        reloadPlaybackContext,
+      );
+      break;
+    } catch (error) {
+      lastInfoError = error;
+      if (poTokens.get(videoId) === poToken) poTokens.delete(videoId);
+      await invalidatePoSession();
+      log("player_info_retry", {
+        video_id: videoId,
+        attempt,
+        error: safeError(error),
+      });
+      if (attempt < 2) {
+        poToken = await mintWebPoToken(videoId, fetch);
+        poTokens.set(videoId, poToken);
+      }
+    }
+  }
+  if (!info) throw lastInfoError || new Error("Could not load player information");
   const streaming = info.streaming_data;
   log("streaming_data", {
     client: "WEB",
