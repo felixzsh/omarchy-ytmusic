@@ -760,6 +760,10 @@ Item {
     pluginDir: root.pluginDir
     bitrateKbps: root.bitrateKbps
     idleMinutes: root.idleShutdownMinutes
+    onPlaybackReadyChanged: if (playbackReady) {
+      backendClient.wanted = true
+      start()
+    }
     onStarted: backendClient.wanted = true
     onStopped: if (!root.uiVisible) backendClient.wanted = false
     onSetupSucceeded: start()

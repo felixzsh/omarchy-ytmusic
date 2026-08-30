@@ -474,6 +474,7 @@ class Backend:
 
     def _start_catalog_locked(self) -> None:
         self.start_catalog()
+        threading.Thread(target=self.player.resolver.warmup, daemon=True).start()
         self.broadcast()
 
     def _client_loop(self, client: socket.socket) -> None:

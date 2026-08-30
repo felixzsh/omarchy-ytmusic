@@ -7,6 +7,8 @@
   skip the requested position.
 - Recover the Quickshell backend socket after a service restart without leaving
   Home in a not-ready state.
+- Prewarm the persistent resolver while the plugin backend is active.
+- Keep the playback clock still until the first stream position is stable.
 - Document that local playback no longer requires `yt-dlp`.
 
 ## 1.2.0

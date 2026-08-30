@@ -16,7 +16,25 @@ from player import (  # noqa: E402
     mpv_command_line,
     mpv_env,
     StreamResolver,
+    QueuePlayer,
 )
+
+
+class EventMpv:
+    running = True
+
+    def __init__(self, events, owner):
+        self.events = list(events)
+        self.owner = owner
+
+    def poll_events(self, _timeout):
+        if self.events:
+            return [self.events.pop(0)]
+        self.owner._stop.set()
+        return []
+
+    def command(self, _args):
+        pass
 
 
 class PlayerTests(unittest.TestCase):
@@ -81,6 +99,30 @@ class PlayerTests(unittest.TestCase):
         self.assertNotIn("WAYLAND_DISPLAY", env)
         self.assertNotIn("DISPLAY", env)
         self.assertEqual(env["XDG_RUNTIME_DIR"], "/run/user/1000")
+
+    def test_stream_clock_waits_for_a_real_position(self):
+        states = []
+        player = QueuePlayer(
+            Path("/tmp/omarchy-ytmusic-test"),
+            on_change=lambda: states.append(player.playing),
+        )
+        player.queue = [{"videoId": "test"}]
+        player.index = 0
+        player._stream_start_ms = 130000
+        player._resume_after_load = True
+        player.mpv = EventMpv([
+            {"event": "file-loaded"},
+            {"event": "property-change", "name": "pause", "data": False},
+            {"event": "playback-restart"},
+            {"event": "property-change", "name": "time-pos", "data": 0.0},
+            {"event": "property-change", "name": "time-pos", "data": 25.0},
+        ], player)
+
+        player._loop()
+
+        self.assertTrue(player.playing)
+        self.assertEqual(player.position_ms, 155000)
+        self.assertEqual(states, [False, True])
 
 
 if __name__ == "__main__":

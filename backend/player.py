@@ -348,6 +348,16 @@ class StreamResolver:
                 pass
         threading.Thread(target=worker, daemon=True).start()
 
+    def warmup(self) -> None:
+        """Start the resolver and initialize its InnerTube client in the background."""
+        with self._lock:
+            if self._shutdown.is_set():
+                return
+            try:
+                self._request_locked("ping", {})
+            except Exception:
+                self._stop_helper_locked()
+
     def update_position(self, video_id: str, position_ms: int) -> None:
         video_id = str(video_id or "").strip()
         if not video_id or self._shutdown.is_set():
@@ -531,7 +541,9 @@ class QueuePlayer:
         self.duration_ms = 0
         self._stream_start_ms = 0
         self._stream_started = False
+        self._stream_position_seen = False
         self._stream_position_mode: str | None = None
+        self._resume_after_load = False
         self.error = ""
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -595,7 +607,8 @@ class QueuePlayer:
             raise PlayerError("Nothing is queued")
         self.ensure_started()
         self.mpv.command(["set_property", "pause", False])
-        self.playing = True
+        self._resume_after_load = True
+        self.playing = self._stream_started and self._stream_position_seen
         self.note_activity()
         self.on_change()
 
@@ -603,6 +616,7 @@ class QueuePlayer:
         if not self.mpv.running:
             return
         self.mpv.command(["set_property", "pause", True])
+        self._resume_after_load = False
         self.playing = False
         self.note_activity()
         self.on_change()
@@ -619,6 +633,9 @@ class QueuePlayer:
                 self.mpv.command(["stop"])
             except Exception:
                 pass
+        self._resume_after_load = False
+        self._stream_started = False
+        self._stream_position_seen = False
         self.playing = False
         self.position_ms = 0
         self.note_activity()
@@ -656,7 +673,9 @@ class QueuePlayer:
             url = self.resolver.resolve(str(item.get("videoId") or ""), int(seconds * 1000))
             self._stream_start_ms = int(seconds * 1000)
             self._stream_started = False
+            self._stream_position_seen = False
             self._stream_position_mode = None
+            self._resume_after_load = resume
             self.mpv.command(loadfile_command(url, item))
             self.mpv.command(["set_property", "pause", not resume])
             self.playing = False
@@ -740,7 +759,9 @@ class QueuePlayer:
         self.error = ""
         self._stream_start_ms = 0
         self._stream_started = False
+        self._stream_position_seen = False
         self._stream_position_mode = None
+        self._resume_after_load = start
         self.ensure_started()
         self._publish_title(item)
         try:
@@ -839,14 +860,25 @@ class QueuePlayer:
                     prop = event.get("name")
                     value = event.get("data")
                     if prop == "pause":
-                        if self._stream_started or value is True:
-                            self.playing = value is False
+                        if value is True:
+                            self.playing = False
+                            changed = True
+                        elif (
+                            value is False
+                            and self._stream_started
+                            and self._stream_position_seen
+                        ):
+                            self.playing = True
                             changed = True
                     elif prop == "time-pos" and isinstance(value, (int, float)):
                         if not self._stream_started:
                             continue
                         raw_ms = int(max(0, value) * 1000)
+                        if raw_ms == 0:
+                            continue
                         if self._stream_position_mode is None:
+                            if self._stream_start_ms > 2000 and raw_ms < 1000:
+                                continue
                             if self._stream_start_ms <= 2000:
                                 self._stream_position_mode = "relative"
                             elif raw_ms >= self._stream_start_ms - 1000:
@@ -858,6 +890,11 @@ class QueuePlayer:
                             if self._stream_position_mode == "absolute"
                             else self._stream_start_ms + raw_ms
                         )
+                        if not self._stream_position_seen:
+                            self._stream_position_seen = True
+                            if self._resume_after_load:
+                                self.playing = True
+                                changed = True
                         item = self.current
                         if item:
                             self.resolver.update_position(
@@ -882,13 +919,14 @@ class QueuePlayer:
                             self._publish_title()
                 elif name == "file-loaded":
                     self._stream_started = False
+                    self._stream_position_seen = False
                     self._stream_position_mode = None
                     self._publish_title()
                 elif name == "playback-restart":
                     self._publish_title()
                     self._stream_started = True
                     self._stream_position_mode = None
-                    self.playing = True
+                    self.playing = self._stream_position_seen
                     self.error = ""
                     changed = True
                 elif name == "end-file":
