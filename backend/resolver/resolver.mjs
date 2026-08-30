@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { createInterface } from "node:readline";
 import { BotGuardClient, getChallenge } from "bgutils-js/botguard";
 import { WebPoMinter } from "bgutils-js/webpo";
+import { GOOG_API_KEY } from "bgutils-js/utils";
 import { Window } from "happy-dom";
 import {
   Constants,
@@ -90,7 +91,7 @@ const getPoIntegrityToken = async (botguardResponse, fetch) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json+protobuf",
-        "x-goog-api-key": "[REDACTED_PUBLIC_BOTGUARD_KEY]",
+        "x-goog-api-key": GOOG_API_KEY,
         "x-user-agent": "grpc-web-javascript/0.1",
       },
       body: JSON.stringify([poTokenRequestKey, botguardResponse]),
