@@ -131,6 +131,7 @@ Item {
   property var pendingSeek: null
 
   property string lastError: ""
+  property string backendError: ""
   property string statusMessage: ""
   property var homeShelves: []
   property var history: []
@@ -255,7 +256,14 @@ Item {
     backendState = state
     interpolatedPosition = Math.max(0, Number(state.position_ms) || 0) / 1000
     positionStamp = Date.now()
-    if (state.error) lastError = Api.redact(String(state.error))
+    var nextBackendError = state.error ? Api.redact(String(state.error)) : ""
+    if (nextBackendError) {
+      backendError = nextBackendError
+      lastError = nextBackendError
+    } else {
+      if (lastError === backendError) lastError = ""
+      backendError = ""
+    }
     pendingSeek = null
   }
 
