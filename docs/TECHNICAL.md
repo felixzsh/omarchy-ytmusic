@@ -28,6 +28,9 @@ The playback path does not invoke or require `yt-dlp`.
 The plugin
 talks to a private Unix socket at `$XDG_RUNTIME_DIR/omarchy-ytmusic/backend.sock`
 using versioned newline-delimited JSON.
+Artwork URLs are rewritten to a loopback HTTP proxy; the backend fetches and
+keeps a bounded in-memory cache of remote thumbnails so Quickshell does not
+open HTTPS image requests directly.
 
 The backend is a Python process supervised by a static systemd user unit that
 is never enabled at login. The Node resolver is a child of that backend, so a

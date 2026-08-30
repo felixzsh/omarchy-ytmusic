@@ -9,6 +9,8 @@
   Home in a not-ready state.
 - Prewarm the persistent resolver while the plugin backend is active.
 - Keep the playback clock still until the first stream position is stable.
+- Serve remote artwork through a bounded local proxy to avoid Qt/OpenSSL image
+  loader crashes in Quickshell.
 - Document that local playback no longer requires `yt-dlp`.
 
 ## 1.2.0

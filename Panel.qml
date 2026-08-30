@@ -942,7 +942,7 @@ Item {
             anchors.fill: parent
             anchors.margins: Style.space(3)
             source: root.service && root.service.detailItem
-              ? (root.service.detailItem.imageUrl || "") : ""
+              ? root.service.artworkUrl(root.service.detailItem.imageUrl) : ""
             fillMode: Image.PreserveAspectFit
             asynchronous: true
           }

@@ -259,6 +259,17 @@ Item {
     pendingSeek = null
   }
 
+  function artworkUrl(value) {
+    var url = String(value || "").trim()
+    if (!url) return ""
+    var base = backendState ? String(backendState.artwork_base_url || "") : ""
+    if (!base) return url.indexOf("http://") === 0 || url.indexOf("https://") === 0
+      ? "" : url
+    if (url.indexOf(base + "?") === 0) return url
+    if (url.indexOf("http://") !== 0 && url.indexOf("https://") !== 0) return ""
+    return base + "?url=" + encodeURIComponent(url)
+  }
+
   property var readyWaiters: []
   property int readyWaitTicks: 0
 

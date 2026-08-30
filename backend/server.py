@@ -11,8 +11,11 @@ import sys
 import threading
 import time
 import traceback
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, quote, urlsplit
+from urllib.request import Request, urlopen
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -73,6 +76,11 @@ class Backend:
         self.idle_minutes = 15
         self.quality_kbps = 320
         self.generation = 0
+        self.artwork_base_url = ""
+        self._artwork_httpd: ThreadingHTTPServer | None = None
+        self._artwork_thread: threading.Thread | None = None
+        self._artwork_cache: dict[str, tuple[str, bytes]] = {}
+        self._artwork_lock = threading.Lock()
         self._clients: list[socket.socket] = []
         self._clients_lock = threading.Lock()
         self._catalog_lock = threading.Lock()
@@ -123,7 +131,7 @@ class Backend:
 
     def state(self) -> dict[str, Any]:
         track = self.player.snapshot_track()
-        return {
+        return self._localize_images({
             "lifecycle": self.lifecycle,
             "backend_version": BACKEND_VERSION,
             "protocol_version": PROTOCOL_VERSION,
@@ -145,7 +153,109 @@ class Backend:
             "quality_kbps": self.quality_kbps,
             "generation": self.generation,
             "error": self.error or self.player.error,
-        }
+            "artwork_base_url": self.artwork_base_url,
+        })
+
+    def _local_artwork_url(self, value: Any) -> str:
+        url = str(value or "").strip()
+        if not url or not self.artwork_base_url:
+            return url
+        if url.startswith(self.artwork_base_url + "?"):
+            return url
+        parsed = urlsplit(url)
+        if parsed.scheme == "http" and parsed.hostname == "127.0.0.1" \
+                and parsed.path == "/artwork":
+            url = parse_qs(parsed.query).get("url", [""])[0].strip()
+            if not url:
+                return ""
+            parsed = urlsplit(url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return ""
+        return f"{self.artwork_base_url}?url={quote(url, safe='')}"
+
+    def _localize_images(self, value: Any) -> Any:
+        if isinstance(value, list):
+            return [self._localize_images(item) for item in value]
+        if isinstance(value, dict):
+            return {
+                key: self._local_artwork_url(item) if key == "imageUrl"
+                else self._localize_images(item)
+                for key, item in value.items()
+            }
+        return value
+
+    def _fetch_artwork(self, url: str) -> tuple[str, bytes] | None:
+        parsed = urlsplit(str(url or "").strip())
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return None
+        with self._artwork_lock:
+            cached = self._artwork_cache.get(url)
+            if cached:
+                return cached
+        try:
+            request = Request(url, headers={
+                "Accept": "image/*",
+                "User-Agent": "omarchy-ytmusic-artwork/1.0",
+            })
+            with urlopen(request, timeout=10) as response:
+                content_type = response.headers.get_content_type()
+                if not content_type.startswith("image/"):
+                    return None
+                data = response.read(2 * 1024 * 1024 + 1)
+                if len(data) > 2 * 1024 * 1024:
+                    return None
+        except Exception:
+            return None
+        result = (content_type, data)
+        with self._artwork_lock:
+            self._artwork_cache[url] = result
+            while len(self._artwork_cache) > 128:
+                self._artwork_cache.pop(next(iter(self._artwork_cache)))
+        return result
+
+    def _start_artwork_proxy(self) -> None:
+        if self._artwork_httpd:
+            return
+        backend = self
+
+        class ArtworkHandler(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                parsed = urlsplit(self.path)
+                url = parse_qs(parsed.query).get("url", [""])[0]
+                artwork = backend._fetch_artwork(url) if parsed.path == "/artwork" else None
+                if not artwork:
+                    self.send_error(404)
+                    return
+                content_type, data = artwork
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, _format, *_args):
+                pass
+
+        self._artwork_httpd = ThreadingHTTPServer(("127.0.0.1", 0), ArtworkHandler)
+        self._artwork_httpd.daemon_threads = True
+        port = self._artwork_httpd.server_address[1]
+        self.artwork_base_url = f"http://127.0.0.1:{port}/artwork"
+        self._artwork_thread = threading.Thread(
+            target=self._artwork_httpd.serve_forever,
+            kwargs={"poll_interval": 0.5},
+            daemon=True,
+        )
+        self._artwork_thread.start()
+
+    def _stop_artwork_proxy(self) -> None:
+        httpd = self._artwork_httpd
+        self._artwork_httpd = None
+        self.artwork_base_url = ""
+        if not httpd:
+            return
+        httpd.shutdown()
+        httpd.server_close()
 
     def broadcast(self) -> None:
         self.generation += 1
@@ -437,11 +547,17 @@ class Backend:
                 path.unlink()
             except OSError:
                 pass
+        self._start_artwork_proxy()
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        server.bind(str(path))
-        os.chmod(path, 0o600)
-        server.listen(8)
-        server.settimeout(0.5)
+        try:
+            server.bind(str(path))
+            os.chmod(path, 0o600)
+            server.listen(8)
+            server.settimeout(0.5)
+        except Exception:
+            self._stop_artwork_proxy()
+            server.close()
+            raise
         print(f"omarchy-ytmusic-backend listening on {path}", file=sys.stderr)
         idle_thread = threading.Thread(target=self._idle_watch, daemon=True)
         idle_thread.start()
@@ -462,6 +578,7 @@ class Backend:
         finally:
             self._stop.set()
             self.player.shutdown()
+            self._stop_artwork_proxy()
             try:
                 server.close()
             except OSError:
@@ -503,7 +620,7 @@ class Backend:
                 message = parse_line(line)
                 if not message:
                     continue
-                reply = self.handle(message)
+                reply = self._localize_images(self.handle(message))
                 try:
                     client.sendall((dumps(reply) + "\n").encode("utf-8"))
                 except OSError:
