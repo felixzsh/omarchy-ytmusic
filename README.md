@@ -62,6 +62,9 @@ Requires **Omarchy 4**, **Python 3**, **Node.js**, **npm**, and **mpv**:
 omarchy pkg add mpv nodejs
 ```
 
+Playback does **not** depend on `yt-dlp`. Audio is resolved by the bundled
+Node helper using `youtubei.js` and streamed to the local headless **mpv**.
+
 The first time you open the player, the plugin installs a user venv with
 [`ytmusicapi`](https://github.com/sigma67/ytmusicapi), a local
 [`youtubei.js`](https://github.com/LuanRT/YouTube.js) resolver, and a systemd

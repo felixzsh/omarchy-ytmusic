@@ -24,6 +24,7 @@ direct `googlevideo` range requests. mpv is
 launched headless (`--vo=null`, no Wayland/X display) and uses the D-Bus-safe
 client name `omarchy-ytmusic` so MPRIS cannot stall the player. Each track sets
 `force-media-title` so MPRIS clients show the song name, not the stream URL.
+The playback path does not invoke or require `yt-dlp`.
 The plugin
 talks to a private Unix socket at `$XDG_RUNTIME_DIR/omarchy-ytmusic/backend.sock`
 using versioned newline-delimited JSON.
@@ -46,6 +47,8 @@ Resolver diagnostics are written to
 `$XDG_RUNTIME_DIR/omarchy-ytmusic/resolver.log`; cookies, PO tokens, and stream
 URLs are redacted. The local SABR response is intentionally non-seekable:
 Python relaunches a new resolver stream with `start_ms` when the user seeks.
+The player determines per stream whether `mpv` reports relative or absolute
+timestamps, so seek offsets are not hardcoded to a particular track.
 
 ## Protocol
 

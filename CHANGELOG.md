@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Normalize relative and absolute `mpv` timestamps per stream for reliable seeks.
+- Start SABR seeks with a segment preroll so irregular segment boundaries do not
+  skip the requested position.
+- Recover the Quickshell backend socket after a service restart without leaving
+  Home in a not-ready state.
+- Document that local playback no longer requires `yt-dlp`.
+
 ## 1.2.0
 
 - Replace per-track stream processes with a persistent youtubei.js stream resolver.
