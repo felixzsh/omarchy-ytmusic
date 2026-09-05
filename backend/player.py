@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import select
 import shutil
 import socket
@@ -536,6 +537,9 @@ class QueuePlayer:
         self.queue: list[dict] = []
         self.index = -1
         self.shuffle = False
+        self._play_history: list[int] = []
+        self._history_position = -1
+        self._shuffle_pending: list[int] = []
         self.repeat = "off"
         self.playing = False
         self.volume = 80
@@ -590,6 +594,11 @@ class QueuePlayer:
             raise PlayerError("Nothing playable in that selection")
         self.queue = tracks
         self.index = max(0, min(int(index or 0), len(tracks) - 1))
+        self._play_history = [self.index]
+        self._history_position = 0
+        self._shuffle_pending = []
+        if self.shuffle:
+            self._prepare_shuffle_cycle()
         self.note_activity()
         self.ensure_started()
         self._play_current(start=play)
@@ -599,6 +608,11 @@ class QueuePlayer:
         if not track or not track.get("videoId"):
             raise PlayerError("That item cannot be queued")
         self.queue.append(track)
+        if self.shuffle:
+            self._shuffle_pending.insert(
+                random.randrange(len(self._shuffle_pending) + 1),
+                len(self.queue) - 1,
+            )
         self.note_activity()
         if self.current and self.current.get("videoId"):
             nxt = self._upcoming_video_id()
@@ -660,11 +674,29 @@ class QueuePlayer:
         if self.position_ms > 3000 and self.current:
             self.seek(0)
             return
+        if self.shuffle and self._history_position > 0:
+            self._history_position -= 1
+            self.index = self._play_history[self._history_position]
+            self._play_current(start=True)
+            return
+        if self.shuffle:
+            if self.repeat == "context" and self.queue:
+                self.index = len(self.queue) - 1
+                self._shuffle_pending = [
+                    index for index in self._shuffle_pending if index != self.index
+                ]
+                self._remember_index(self.index)
+                self._play_current(start=True)
+            else:
+                self.seek(0)
+            return
         if self.index > 0:
             self.index -= 1
+            self._remember_index(self.index)
             self._play_current(start=True)
         elif self.repeat == "context" and self.queue:
             self.index = len(self.queue) - 1
+            self._remember_index(self.index)
             self._play_current(start=True)
         else:
             self.seek(0)
@@ -701,7 +733,15 @@ class QueuePlayer:
         self.on_change()
 
     def set_shuffle(self, value: bool) -> None:
-        self.shuffle = bool(value)
+        enabled = bool(value)
+        if enabled and not self.shuffle and self.current:
+            self._shuffle_pending = []
+            self.shuffle = True
+            self._prepare_shuffle_cycle()
+        else:
+            self.shuffle = enabled
+            if not enabled:
+                self._shuffle_pending = []
         self.note_activity()
         self.on_change()
 
@@ -741,9 +781,45 @@ class QueuePlayer:
     def note_activity(self) -> None:
         self.last_activity = time.time()
 
-    def _upcoming_video_id(self) -> str:
+    def _remember_index(self, index: int) -> None:
+        if (self._play_history and self._history_position >= 0
+                and self._play_history[self._history_position] == index):
+            self.index = index
+            return
+        if self._history_position + 1 < len(self._play_history):
+            self._play_history = self._play_history[:self._history_position + 1]
+        self._play_history.append(index)
+        self._history_position = len(self._play_history) - 1
+        self.index = index
+
+    def _prepare_shuffle_cycle(self, excluded: set[int] | None = None) -> None:
+        blocked = set(self._play_history)
+        blocked.update(excluded or set())
+        candidates = [
+            index for index in range(len(self.queue))
+            if index != self.index and index not in blocked
+        ]
+        if not candidates:
+            candidates = [
+                index for index in range(len(self.queue))
+                if index != self.index and index not in (excluded or set())
+            ]
+        random.shuffle(candidates)
+        self._shuffle_pending = candidates
+
+    def _upcoming_index(self) -> int | None:
+        if self.shuffle:
+            if self._history_position + 1 < len(self._play_history):
+                return self._play_history[self._history_position + 1]
+            if not self._shuffle_pending and self.repeat == "context":
+                self._prepare_shuffle_cycle()
+            return self._shuffle_pending[0] if self._shuffle_pending else None
         nxt = self.index + 1
-        if 0 <= nxt < len(self.queue):
+        return nxt if 0 <= nxt < len(self.queue) else None
+
+    def _upcoming_video_id(self) -> str:
+        nxt = self._upcoming_index()
+        if nxt is not None:
             return str(self.queue[nxt].get("videoId") or "")
         return ""
 
@@ -790,7 +866,10 @@ class QueuePlayer:
         nxt = self._upcoming_video_id()
         if nxt:
             self.resolver.prefetch(nxt)
-        elif self.catalog_radio and len(self.queue) - self.index <= 2:
+        elif self.catalog_radio and (
+            (self.shuffle and not self._shuffle_pending)
+            or (not self.shuffle and len(self.queue) - self.index <= 2)
+        ):
             self._fill_radio(video_id)
         self._generation += 1
         self.on_change()
@@ -811,6 +890,11 @@ class QueuePlayer:
                     if not vid or vid in seen:
                         continue
                     self.queue.append(item)
+                    if self.shuffle:
+                        self._shuffle_pending.insert(
+                            random.randrange(len(self._shuffle_pending) + 1),
+                            len(self.queue) - 1,
+                        )
                     seen.add(vid)
                     added += 1
                     if added >= 24:
@@ -843,14 +927,17 @@ class QueuePlayer:
 
     def _next_index_after_failure(self, failed: set[int]) -> int | None:
         if self.shuffle:
-            import random
-
-            choices = [
-                index for index in range(len(self.queue))
-                if index not in failed and index != self.index
-            ]
-            if choices:
-                return random.choice(choices)
+            while self._shuffle_pending:
+                index = self._shuffle_pending.pop(0)
+                if index not in failed and index != self.index:
+                    return index
+            if self.repeat == "context":
+                self._prepare_shuffle_cycle(failed)
+                while self._shuffle_pending:
+                    index = self._shuffle_pending.pop(0)
+                    if index not in failed and index != self.index:
+                        return index
+            return None
         for index in range(self.index + 1, len(self.queue)):
             if index not in failed:
                 return index
@@ -879,7 +966,7 @@ class QueuePlayer:
                 "skipping unplayable track video_id=%s",
                 (self.current or {}).get("videoId", ""),
             )
-            self.index = next_index
+            self._remember_index(next_index)
         self.error = str(last_error or "Playback failed")
         return False
 
@@ -889,21 +976,28 @@ class QueuePlayer:
             return False
         if self.repeat == "track" and self.current:
             return True
-        if self.shuffle and len(self.queue) > 1:
-            import random
-            choices = [i for i in range(len(self.queue)) if i != self.index]
-            if not choices:
-                return False
-            self.index = random.choice(choices)
-            return True
+        if self.shuffle:
+            if self._history_position + 1 < len(self._play_history):
+                self._history_position += 1
+                self.index = self._play_history[self._history_position]
+                return True
+            if not self._shuffle_pending:
+                if self.repeat == "context":
+                    self._prepare_shuffle_cycle()
+                elif len(self.queue) == 1:
+                    return False
+            if self._shuffle_pending:
+                self._remember_index(self._shuffle_pending.pop(0))
+                return True
+            return False
         if self.index + 1 < len(self.queue):
-            self.index += 1
+            self._remember_index(self.index + 1)
             return True
         if self.repeat == "context" and self.queue:
             if self._sleep_after == "context":
                 self._sleep_after = ""
                 return False
-            self.index = 0
+            self._remember_index(0)
             return True
         return False
 

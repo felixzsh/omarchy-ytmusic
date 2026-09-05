@@ -166,6 +166,51 @@ class PlayerTests(unittest.TestCase):
         self.assertFalse(player.playing)
         self.assertEqual(player.error, "PMD:Undefined")
 
+    def test_shuffle_consumes_a_persistent_random_order(self):
+        player = QueuePlayer(Path("/tmp/omarchy-ytmusic-test"))
+        player.ensure_started = lambda: None
+
+        def fake_play(start=True, expose_error=True):
+            player.playing = True
+
+        player._play_current = fake_play
+        player.load([{"videoId": video_id} for video_id in "ABCD"])
+
+        with patch("player.random.shuffle", side_effect=lambda values: values.reverse()) as shuffle:
+            player.set_shuffle(True)
+            player.set_shuffle(True)
+            self.assertEqual(player._shuffle_pending, [3, 2, 1])
+            player.next()
+            self.assertEqual(player.current["videoId"], "D")
+            player.next()
+            self.assertEqual(player.current["videoId"], "C")
+            player.next()
+            self.assertEqual(player.current["videoId"], "B")
+            self.assertEqual(shuffle.call_count, 1)
+
+    def test_shuffle_previous_uses_history_and_next_restores_forward_track(self):
+        player = QueuePlayer(Path("/tmp/omarchy-ytmusic-test"))
+        player.ensure_started = lambda: None
+
+        def fake_play(start=True, expose_error=True):
+            player.playing = True
+
+        player._play_current = fake_play
+        player.load([{"videoId": video_id} for video_id in "ABCD"])
+
+        with patch("player.random.shuffle", side_effect=lambda values: values.reverse()):
+            player.set_shuffle(True)
+            player.next()
+            player.next()
+            self.assertEqual(player.current["videoId"], "C")
+
+            player.previous()
+            self.assertEqual(player.current["videoId"], "D")
+            player.next()
+            self.assertEqual(player.current["videoId"], "C")
+            player.previous()
+            self.assertEqual(player.current["videoId"], "D")
+
 
 if __name__ == "__main__":
     unittest.main()
