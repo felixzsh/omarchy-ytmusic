@@ -29,6 +29,8 @@ Item {
   property bool busy: false
   property bool setupBusy: false
   property string lastError: ""
+  // start() requested before requirement checks finished (cold open).
+  property bool pendingStart: false
 
   signal started()
   signal stopped()
@@ -78,6 +80,11 @@ Item {
 
   function start() {
     if (busy || !pluginDir) return
+    if (!requirementsChecked) {
+      pendingStart = true
+      checkRequirements()
+      return
+    }
     if (!binaryAvailable || !unitAvailable) {
       lastError = "Playback support needs to be set up"
       return
@@ -186,6 +193,11 @@ Item {
   }
 
   onPluginDirChanged: if (pluginDir) checkRequirements()
-  onRequirementsCheckedChanged: if (requirementsChecked)
+  onRequirementsCheckedChanged: if (requirementsChecked) {
     installBundledBackendIfNeeded()
+    if (pendingStart) {
+      pendingStart = false
+      if (playbackReady) start()
+    }
+  }
 }

@@ -306,6 +306,11 @@ Item {
       ready(true)
       return
     }
+    if (!daemonManager.requirementsChecked) {
+      daemonManager.checkRequirements()
+      ready(false)
+      return
+    }
     if (!daemonManager.playbackReady) {
       daemonManager.setupPlayback()
       fail("Installing playback on this computer…")
@@ -808,6 +813,16 @@ Item {
     running: root.uiVisible && !backendClient.ready && daemonManager.playbackReady
     repeat: true
     onTriggered: daemonManager.start()
+  }
+
+  // Cold open can race the one-shot requirement check (or run before
+  // pluginDir is known). While a surface is visible, keep polling until the
+  // backend requirements are known so the start timer above can take over.
+  Timer {
+    interval: 2000
+    running: root.uiVisible && !daemonManager.requirementsChecked
+    repeat: true
+    onTriggered: daemonManager.checkRequirements()
   }
 
   Timer {
