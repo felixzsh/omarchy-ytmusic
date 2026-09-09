@@ -11,6 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from server import Backend, idle_should_exit  # noqa: E402
+from catalog import CatalogError  # noqa: E402
 
 
 class IdleWatchTests(unittest.TestCase):
@@ -75,6 +76,29 @@ class ArtworkProxyTests(unittest.TestCase):
                     self.assertEqual(response.read(), b"image-data")
         finally:
             backend._stop_artwork_proxy()
+
+
+class RequireCatalogTests(unittest.TestCase):
+    def test_require_catalog_retries_init_on_demand(self):
+        backend = Backend()
+        backend.catalog = None
+        sentinel = object()
+        calls = []
+
+        def fake_start():
+            calls.append(1)
+            backend.catalog = sentinel
+
+        backend.start_catalog = fake_start
+        self.assertIs(backend.require_catalog(), sentinel)
+        self.assertEqual(calls, [1])
+
+    def test_require_catalog_raises_when_retry_fails(self):
+        backend = Backend()
+        backend.catalog = None
+        backend.start_catalog = lambda: None
+        with self.assertRaises(CatalogError):
+            backend.require_catalog()
 
 
 if __name__ == "__main__":

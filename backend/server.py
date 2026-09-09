@@ -411,6 +411,15 @@ class Backend:
         raise ValueError(f"Unknown command: {command}")
 
     def require_catalog(self) -> Catalog:
+        if self.catalog is not None:
+            return self.catalog
+        # The first init runs in a background thread at serve() time and can
+        # fail transiently (no network yet, browser.json mid-write). Retry
+        # on demand so one bad startup doesn't wedge the UI until restart.
+        try:
+            self.start_catalog()
+        except Exception:
+            pass
         if not self.catalog:
             raise CatalogError("YouTube Music is unavailable")
         return self.catalog
