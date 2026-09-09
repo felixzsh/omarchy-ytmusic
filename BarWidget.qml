@@ -507,7 +507,7 @@ BarWidget {
 
           Text {
             width: parent.width
-            text: root.ytmusic ? root.ytmusic.loginProgress : "YouTube Music is unavailable"
+            text: root.ytmusic ? root.ytmusic.loginProgress : "Starting YouTube Music…"
             color: root.foreground
             font.family: root.bar ? root.bar.fontFamily : Style.font.family
             font.pixelSize: Style.font.body
@@ -789,7 +789,7 @@ BarWidget {
           Text {
             width: parent.width - openButton.width - Style.space(6)
             anchors.verticalCenter: parent.verticalCenter
-            text: !root.ytmusic ? "YouTube Music is unavailable"
+            text: !root.ytmusic ? "Starting YouTube Music…"
               : (root.ytmusic.lastError !== "" ? root.ytmusic.lastError
               : (root.ytmusic.statusMessage !== "" ? root.ytmusic.statusMessage
               : (!root.ytmusic.accountConnected
