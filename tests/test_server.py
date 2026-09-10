@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
+import socket
 import sys
 import unittest
 from pathlib import Path
@@ -10,7 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from server import Backend, idle_should_exit  # noqa: E402
+from server import Backend, activated_socket, idle_should_exit  # noqa: E402
 from catalog import CatalogError  # noqa: E402
 
 
@@ -35,6 +37,25 @@ class IdleWatchTests(unittest.TestCase):
         self.assertFalse(idle_should_exit(
             idle_minutes=0, playing=False, client_count=0,
             last_activity=now - 15 * 60, now=now))
+
+
+class ActivatedSocketTests(unittest.TestCase):
+    def test_returns_none_without_systemd_environment(self):
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertIsNone(activated_socket())
+
+    def test_returns_none_without_listen_fds(self):
+        env = {"LISTEN_PID": str(os.getpid()), "LISTEN_FDS": "0"}
+        with patch.dict("os.environ", env, clear=True):
+            self.assertIsNone(activated_socket())
+
+    def test_adopts_fd_when_systemd_activates(self):
+        env = {"LISTEN_PID": str(os.getpid()), "LISTEN_FDS": "1"}
+        sentinel = object()
+        with patch.dict("os.environ", env, clear=True), \
+                patch("server.socket.fromfd", return_value=sentinel) as fromfd:
+            self.assertIs(activated_socket(), sentinel)
+            fromfd.assert_called_once_with(3, socket.AF_UNIX, socket.SOCK_STREAM)
 
 
 class ArtworkProxyTests(unittest.TestCase):

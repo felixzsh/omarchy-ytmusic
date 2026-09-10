@@ -318,7 +318,6 @@ Item {
       return
     }
     daemonManager.start()
-    backendClient.wanted = true
     readyWaiters = readyWaiters.concat([ready])
     readyWaitTicks = 0
     if (!readyWaitTimer.running) readyWaitTimer.start()
@@ -353,7 +352,6 @@ Item {
     if (value) next[name] = true
     visibleSurfaces = next
     if (value) {
-      backendClient.wanted = true
       ensureBackend()
       if (daemonManager.playbackReady) daemonManager.start()
     }
@@ -368,7 +366,6 @@ Item {
     if (!daemonManager.playbackReady) daemonManager.setupPlayback()
     else {
       daemonManager.start()
-      backendClient.wanted = true
     }
   }
 
@@ -759,7 +756,10 @@ Item {
 
   BackendClient {
     id: backendClient
-    wanted: daemonManager.running || root.uiVisible
+    // Connect while a surface is open or audio is playing. Dropping the client
+    // lets the backend idle out; the next connection wakes it through the
+    // socket unit, so there is no start/stop orchestration here.
+    wanted: root.uiVisible || root.playing
     onStateReceived: function(state) { root.applyBackendState(state) }
     onConnectedChanged: {
       if (connected) return
@@ -784,12 +784,7 @@ Item {
     pluginDir: root.pluginDir
     bitrateKbps: root.bitrateKbps
     idleMinutes: root.idleShutdownMinutes
-    onPlaybackReadyChanged: if (playbackReady) {
-      backendClient.wanted = true
-      start()
-    }
-    onStarted: backendClient.wanted = true
-    onStopped: if (!root.uiVisible) backendClient.wanted = false
+    onPlaybackReadyChanged: if (playbackReady) start()
     onSetupSucceeded: start()
   }
 
@@ -808,16 +803,9 @@ Item {
     }
   }
 
-  Timer {
-    interval: 2000
-    running: root.uiVisible && !backendClient.ready && daemonManager.playbackReady
-    repeat: true
-    onTriggered: daemonManager.start()
-  }
-
   // Cold open can race the one-shot requirement check (or run before
   // pluginDir is known). While a surface is visible, keep polling until the
-  // backend requirements are known so the start timer above can take over.
+  // backend requirements are known.
   Timer {
     interval: 2000
     running: root.uiVisible && !daemonManager.requirementsChecked

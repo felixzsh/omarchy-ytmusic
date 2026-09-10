@@ -166,7 +166,7 @@ Item {
     onExited: function(code) {
       root.busy = false
       if (Number(code) === 0) {
-        root.serviceActive = true
+        root.refreshStatus()
         root.started()
       } else {
         root.lastError = root.safeError(startCommand.stderr.text

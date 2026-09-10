@@ -9,7 +9,8 @@ Usage: scripts/setup.sh
 
 Install the unprivileged YouTube Music playback backend: a user venv with
 ytmusicapi, a local youtubei.js resolver, copies of both outside the plugin
-tree, and a static systemd user unit that is never enabled at login.
+tree, and socket-activated systemd user units. The socket is enabled at login;
+the backend starts on the first connection and stops again when idle.
 EOF
 }
 
@@ -34,6 +35,7 @@ lib_dir="$HOME/.local/lib/omarchy-ytmusic"
 venv_dir="$data_root/omarchy-ytmusic/venv"
 unit_dir="$config_root/systemd/user"
 unit_file="$unit_dir/omarchy-ytmusic.service"
+socket_file="$unit_dir/omarchy-ytmusic.socket"
 auth_dir="$config_root/omarchy-ytmusic"
 resolver_dir="$data_root/omarchy-ytmusic/resolver"
 
@@ -75,7 +77,15 @@ sed -e "s|ExecStart=.*|ExecStart=$venv_dir/bin/python $lib_dir/server.py|" \
   "$source_root/systemd/omarchy-ytmusic.service" > "$unit_file"
 chmod 644 -- "$unit_file"
 
+install -m 644 -- \
+  "$source_root/systemd/omarchy-ytmusic.socket" "$socket_file"
+
 systemctl --user daemon-reload
+
+# Socket activation: enable the socket, never the service. The backend starts
+# when the player connects and exits after the configured idle period.
+systemctl --user disable --now omarchy-ytmusic.service >/dev/null 2>&1 || true
+systemctl --user enable omarchy-ytmusic.socket >/dev/null
 
 # Import an existing ytmusicbar session if this install has none yet.
 if [[ ! -s $auth_dir/browser.json && -s $config_root/ytmusicbar/browser.json ]]; then
@@ -85,4 +95,5 @@ fi
 "$venv_dir/bin/python" "$lib_dir/server.py" --self-test >/dev/null
 
 echo "Installed YouTube Music playback to $lib_dir"
-echo "The user unit is $unit_file and is not enabled at login."
+echo "The socket unit is $socket_file and is enabled at login; the backend"
+echo "starts on first connection and stops again when idle."

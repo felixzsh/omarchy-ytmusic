@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Activate the playback backend through a systemd socket so opening the player
+  starts it and idle shutdown leaves the socket ready for the next connection.
+- Drop the QML start/stop orchestration; the client connection owns the backend
+  lifecycle and no longer keeps it awake in the background.
+
 ## 1.2.0
 
 - Normalize relative and absolute `mpv` timestamps per stream for reliable seeks.

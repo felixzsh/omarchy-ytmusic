@@ -1,7 +1,8 @@
 [Unit]
 Description=Omarchy YouTube Music plugin playback backend
 Documentation=https://github.com/felixzsh/omarchy-ytmusic
-After=graphical-session.target sound.target
+Requires=omarchy-ytmusic.socket
+After=omarchy-ytmusic.socket graphical-session.target sound.target
 Wants=sound.target
 
 [Service]
@@ -16,4 +17,5 @@ UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 
-# Never enable this unit at login. The plugin starts it on demand.
+# Socket-activated: enable omarchy-ytmusic.socket, never this unit. The backend
+# starts on the first connection and exits again after the configured idle time.

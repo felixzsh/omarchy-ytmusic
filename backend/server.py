@@ -58,6 +58,19 @@ def socket_path() -> Path:
     return runtime_dir() / "backend.sock"
 
 
+def activated_socket() -> socket.socket | None:
+    """Return the listening socket handed over by systemd, if any."""
+    if os.environ.get("LISTEN_PID") != str(os.getpid()):
+        return None
+    try:
+        listen_fds = int(os.environ.get("LISTEN_FDS", "0"))
+    except ValueError:
+        return None
+    if listen_fds < 1:
+        return None
+    return socket.fromfd(3, socket.AF_UNIX, socket.SOCK_STREAM)
+
+
 def idle_should_exit(*, idle_minutes: int, playing: bool, client_count: int,
                      last_activity: float, now: float) -> bool:
     if idle_minutes <= 0 or playing or client_count > 0:
@@ -551,17 +564,21 @@ class Backend:
         return self.state()
 
     def serve(self, path: Path) -> None:
-        if path.exists():
+        server = activated_socket()
+        owns_path = server is None
+        if owns_path and path.exists():
             try:
                 path.unlink()
             except OSError:
                 pass
         self._start_artwork_proxy()
-        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        if server is None:
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
-            server.bind(str(path))
-            os.chmod(path, 0o600)
-            server.listen(8)
+            if owns_path:
+                server.bind(str(path))
+                os.chmod(path, 0o600)
+                server.listen(8)
             server.settimeout(0.5)
         except Exception:
             self._stop_artwork_proxy()
@@ -592,7 +609,7 @@ class Backend:
                 server.close()
             except OSError:
                 pass
-            if path.exists():
+            if owns_path and path.exists():
                 try:
                     path.unlink()
                 except OSError:

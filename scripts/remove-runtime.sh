@@ -14,8 +14,10 @@ data_root=${XDG_DATA_HOME:-"$HOME/.local/share"}
 cache_root=${XDG_CACHE_HOME:-"$HOME/.cache"}
 runtime_root=${XDG_RUNTIME_DIR:-/tmp}
 
+systemctl --user disable --now omarchy-ytmusic.socket 2>/dev/null || true
 systemctl --user stop omarchy-ytmusic.service 2>/dev/null || true
-rm -f -- "$config_root/systemd/user/omarchy-ytmusic.service"
+rm -f -- "$config_root/systemd/user/omarchy-ytmusic.service" \
+  "$config_root/systemd/user/omarchy-ytmusic.socket"
 systemctl --user daemon-reload 2>/dev/null || true
 
 rm -rf -- "$HOME/.local/lib/omarchy-ytmusic"
@@ -30,7 +32,7 @@ if (( purge )); then
     "$runtime_root/omarchy-ytmusic"
 fi
 
-echo "Removed the YouTube Music playback unit and installed backend."
+echo "Removed the YouTube Music playback units and installed backend."
 if (( purge )); then
   echo "Purged venv, auth file, and cache."
 fi

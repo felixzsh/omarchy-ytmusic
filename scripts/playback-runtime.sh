@@ -13,6 +13,7 @@ lib_dir="$HOME/.local/lib/omarchy-ytmusic"
 backend_script="$lib_dir/server.py"
 resolver_dir="$HOME/.local/share/omarchy-ytmusic/resolver"
 unit=omarchy-ytmusic.service
+socket=omarchy-ytmusic.socket
 
 sync_backend() {
   [[ -n $source_root && -f $source_root/backend/server.py && -d $lib_dir ]] || return 1
@@ -51,7 +52,8 @@ unit_exists() {
 }
 
 runtime_ready() {
-  [[ -x $venv_python && -f $backend_script ]] && unit_exists "$unit" \
+  [[ -x $venv_python && -f $backend_script ]] \
+    && unit_exists "$unit" && unit_exists "$socket" \
     && [[ -f "$resolver_dir/resolver.mjs" \
       && -f "$resolver_dir/node_modules/youtubei.js/package.json" \
       && -f "$resolver_dir/node_modules/googlevideo/package.json" \
@@ -70,14 +72,14 @@ case $action in
       echo "playback-runtime.sh: YouTube Music playback is not installed yet" >&2
       exit 1
     }
+    # The socket owns the listener; the backend starts on the first connection.
+    systemctl --user start "$socket"
     if (( updated == 0 )) && systemctl --user is-active --quiet "$unit"; then
       systemctl --user restart "$unit"
-    else
-      systemctl --user start "$unit"
     fi
     ;;
   stop)
-    systemctl --user stop "$unit" 2>/dev/null || true
+    systemctl --user stop "$unit" "$socket" 2>/dev/null || true
     ;;
   status)
     runtime_ready || exit 1
