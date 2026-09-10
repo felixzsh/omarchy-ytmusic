@@ -67,10 +67,10 @@ Node helper using `youtubei.js` and streamed to the local headless **mpv**.
 
 The first time you open the player, the plugin installs a user venv with
 [`ytmusicapi`](https://github.com/sigma67/ytmusicapi), a local
-[`youtubei.js`](https://github.com/LuanRT/YouTube.js) resolver, and a systemd
-user unit that is **never enabled at login**. The plugin starts it when you play
-music and stops it after the configured idle period. No `sudo` or `pkexec` is
-required.
+[`youtubei.js`](https://github.com/LuanRT/YouTube.js) resolver, and a
+socket-activated systemd user socket. The socket is enabled at login; it starts
+the backend on the first connection and the backend stops again after the
+configured idle period. No `sudo` or `pkexec` is required.
 
 From a local checkout:
 
@@ -116,9 +116,10 @@ While the plugin is still installed:
 omarchy plugin remove felixzsh.ytmusic
 ```
 
-That stops the user unit and deletes:
+That stops the user units and deletes:
 
 - `~/.config/systemd/user/omarchy-ytmusic.service`
+- `~/.config/systemd/user/omarchy-ytmusic.socket`
 - `~/.local/lib/omarchy-ytmusic/`
 - `~/.local/share/omarchy-ytmusic/`
 - `~/.config/omarchy-ytmusic/`

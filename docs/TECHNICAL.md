@@ -32,11 +32,11 @@ Artwork URLs are rewritten to a loopback HTTP proxy; the backend fetches and
 keeps a bounded in-memory cache of remote thumbnails so Quickshell does not
 open HTTPS image requests directly.
 
-The backend is a Python process supervised by a static systemd user unit that
-is never enabled at login. The Node resolver is a child of that backend, so a
-new process is not created for every track. The plugin starts the unit when a
-UI is visible or you press play, and the backend exits after the configured
-idle period.
+The backend is a Python process activated on demand by a systemd user socket
+(`omarchy-ytmusic.socket`). The Node resolver is a child of that backend, so a
+new process is not created for every track. Connecting to the socket starts the
+backend; it exits after the configured idle period and the socket starts it
+again on the next connection.
 
 Omarchy hot-reloads plugins on any write inside their directory, so the venv
 and installed backend live outside the plugin tree:
