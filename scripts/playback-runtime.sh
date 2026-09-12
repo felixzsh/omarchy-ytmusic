@@ -4,7 +4,7 @@ set -euo pipefail
 action=${1:-}
 source_root=${2:-}
 if [[ -z $action || ( $# -gt 2 ) ]]; then
-  echo "Usage: scripts/playback-runtime.sh check|start|stop|status|unit [plugin-dir]" >&2
+  echo "Usage: scripts/playback-runtime.sh check|start|restart|stop|status|unit [plugin-dir]" >&2
   exit 2
 fi
 
@@ -30,7 +30,8 @@ sync_backend() {
   if [[ -f $source_root/backend/resolver/package.json ]] \
       && { [[ ! -f "$resolver_dir/package.json" ]] \
         || ! cmp -s -- "$source_root/backend/resolver/package.json" "$resolver_dir/package.json" \
-        || ! cmp -s -- "$source_root/backend/resolver/package-lock.json" "$resolver_dir/package-lock.json"; }; then
+        || ! cmp -s -- "$source_root/backend/resolver/package-lock.json" \
+          "$resolver_dir/package-lock.json"; }; then
     install -m 644 -- \
       "$source_root/backend/resolver/package.json" \
       "$source_root/backend/resolver/package-lock.json" \
@@ -77,6 +78,18 @@ case $action in
     if (( updated == 0 )) && systemctl --user is-active --quiet "$unit"; then
       systemctl --user restart "$unit"
     fi
+    ;;
+  restart)
+    # Force a fresh backend even when nothing changed. systemd re-activates the
+    # unit against the already-listening socket, which recovers a backend that
+    # wedged on a transient startup failure.
+    sync_backend || true
+    runtime_ready || {
+      echo "playback-runtime.sh: YouTube Music playback is not installed yet" >&2
+      exit 1
+    }
+    systemctl --user start "$socket"
+    systemctl --user restart "$unit"
     ;;
   stop)
     systemctl --user stop "$unit" "$socket" 2>/dev/null || true

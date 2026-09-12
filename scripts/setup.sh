@@ -85,7 +85,9 @@ systemctl --user daemon-reload
 # Socket activation: enable the socket, never the service. The backend starts
 # when the player connects and exits after the configured idle period.
 systemctl --user disable --now omarchy-ytmusic.service >/dev/null 2>&1 || true
-systemctl --user enable omarchy-ytmusic.socket >/dev/null
+# Enable and start the socket now, so playback works on the first open instead
+# of waiting for the next login.
+systemctl --user enable --now omarchy-ytmusic.socket >/dev/null
 
 # Import an existing ytmusicbar session if this install has none yet.
 if [[ ! -s $auth_dir/browser.json && -s $config_root/ytmusicbar/browser.json ]]; then

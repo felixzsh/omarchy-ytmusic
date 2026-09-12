@@ -36,7 +36,11 @@ The backend is a Python process activated on demand by a systemd user socket
 (`omarchy-ytmusic.socket`). The Node resolver is a child of that backend, so a
 new process is not created for every track. Connecting to the socket starts the
 backend; it exits after the configured idle period and the socket starts it
-again on the next connection.
+again on the next connection. While a surface is open, the plugin watches that
+state: if the runtime is missing it re-runs `scripts/setup.sh`, and if a
+connected backend never reports `ready` it runs `scripts/playback-runtime.sh
+restart` to replace the wedged process. Setup and restart attempts are bounded
+so a genuinely broken install reports an error instead of looping.
 
 Omarchy hot-reloads plugins on any write inside their directory, so the venv
 and installed backend live outside the plugin tree:

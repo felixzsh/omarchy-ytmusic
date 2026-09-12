@@ -6,6 +6,12 @@
   starts it and idle shutdown leaves the socket ready for the next connection.
 - Drop the QML start/stop orchestration; the client connection owns the backend
   lifecycle and no longer keeps it awake in the background.
+- Self-heal while a surface is open: retry the playback install when the runtime
+  is missing and restart the backend when it never becomes ready, instead of
+  staying on "not ready" until a manual service restart.
+- Surface playback install failures in the player instead of swallowing them.
+- Start the socket immediately during setup and document enabling the socket
+  rather than the socket-activated service.
 
 ## 1.2.0
 

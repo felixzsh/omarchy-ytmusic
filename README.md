@@ -72,6 +72,18 @@ socket-activated systemd user socket. The socket is enabled at login; it starts
 the backend on the first connection and the backend stops again after the
 configured idle period. No `sudo` or `pkexec` is required.
 
+If the player reports that YouTube Music is not ready, open it once: the plugin
+retries the install and restarts the backend on its own. To control the units by
+hand, enable the **socket**, not the service:
+
+```bash
+systemctl --user enable --now omarchy-ytmusic.socket
+```
+
+`omarchy-ytmusic.service` is socket-activated and has no `[Install]` section, so
+`systemctl --user enable omarchy-ytmusic.service` is expected to fail with
+"the unit files have no installation config". That is not an error.
+
 From a local checkout:
 
 ```bash

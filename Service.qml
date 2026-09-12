@@ -130,6 +130,13 @@ Item {
   property int playbackPositionTick: 0
   property var pendingSeek: null
 
+  // Self-healing counters. A visible surface waits a few seconds before it
+  // re-runs setup or restarts the backend, so a transient startup failure does
+  // not leave the player stuck on "not ready" until a manual service restart.
+  property int backendStallTicks: 0
+  property int backendRestartAttempts: 0
+  property int backendSetupAttempts: 0
+
   property string lastError: ""
   property string backendError: ""
   property string statusMessage: ""
@@ -786,6 +793,9 @@ Item {
     idleMinutes: root.idleShutdownMinutes
     onPlaybackReadyChanged: if (playbackReady) start()
     onSetupSucceeded: start()
+    onSetupFailed: function(reason) {
+      root.fail(reason || "Playback support could not be installed")
+    }
   }
 
   Timer {
@@ -797,9 +807,57 @@ Item {
       if (backendClient.ready) {
         root.flushReadyWaiters(true)
       } else if (root.readyWaitTicks >= 150) {
-        root.fail("YouTube Music is not ready")
+        if (!root.lastError) root.fail("YouTube Music is not ready")
         root.flushReadyWaiters(false)
       }
+    }
+  }
+
+  // Self-healing while a surface is open. When playback support is missing it
+  // re-runs setup; when the backend is installed but never becomes ready it
+  // restarts the service. This recovers the transient failures that otherwise
+  // needed a manual `systemctl --user restart`. Attempts are bounded so a
+  // genuinely broken install reports an error instead of looping.
+  Timer {
+    id: backendWatchdog
+    interval: 5000
+    repeat: true
+    running: root.uiVisible
+    onTriggered: {
+      if (root.fullyConnected) {
+        root.backendStallTicks = 0
+        root.backendRestartAttempts = 0
+        root.backendSetupAttempts = 0
+        return
+      }
+      if (!daemonManager.requirementsChecked) {
+        daemonManager.checkRequirements()
+        return
+      }
+      if (!daemonManager.playbackReady) {
+        if (daemonManager.setupBusy) return
+        root.backendStallTicks++
+        if (root.backendStallTicks < 2) return
+        root.backendStallTicks = 0
+        if (root.backendSetupAttempts >= 3) {
+          if (!root.lastError) root.fail(daemonManager.lastError
+            || "Playback support could not be installed")
+          return
+        }
+        root.backendSetupAttempts++
+        daemonManager.setupPlayback()
+        return
+      }
+      root.backendStallTicks++
+      if (root.backendStallTicks < 2) return
+      root.backendStallTicks = 0
+      if (root.backendRestartAttempts >= 3) {
+        if (!root.lastError) root.fail(daemonManager.lastError
+          || "YouTube Music could not start on this computer")
+        return
+      }
+      root.backendRestartAttempts++
+      daemonManager.restart()
     }
   }
 

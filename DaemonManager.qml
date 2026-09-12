@@ -96,6 +96,15 @@ Item {
     startCommand.running = true
   }
 
+  function restart() {
+    if (busy || !pluginDir) return
+    lastError = ""
+    busy = true
+    restartCommand.command = ["/usr/bin/bash",
+      pluginDir + "/scripts/playback-runtime.sh", "restart"]
+    restartCommand.running = true
+  }
+
   function stop() {
     lastError = ""
     busy = true
@@ -171,6 +180,22 @@ Item {
       } else {
         root.lastError = root.safeError(startCommand.stderr.text
           || "Could not start YouTube Music playback")
+      }
+    }
+  }
+
+  Process {
+    id: restartCommand
+    running: false
+    stderr: StdioCollector { }
+    onExited: function(code) {
+      root.busy = false
+      if (Number(code) === 0) {
+        root.refreshStatus()
+        root.started()
+      } else {
+        root.lastError = root.safeError(restartCommand.stderr.text
+          || "Could not restart YouTube Music playback")
       }
     }
   }
