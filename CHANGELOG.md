@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Keep playing when a stream dies mid-track: a failed stream now retries the
+  song and then skips, instead of stopping until the backend is restarted.
+- Advance on end-of-file even when the play flag is momentarily stale, and
+  ignore the duplicate end events mpv emits for the file just replaced, so a
+  finished track cannot stall the queue or skip the next song.
+- Serve artwork from a stable loopback port so images are not reloaded with
+  "Connection refused" every time an idle backend restarts.
 - Activate the playback backend through a systemd socket so opening the player
   starts it and idle shutdown leaves the socket ready for the next connection.
 - Drop the QML start/stop orchestration; the client connection owns the backend

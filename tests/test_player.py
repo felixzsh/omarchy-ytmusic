@@ -188,6 +188,69 @@ class PlayerTests(unittest.TestCase):
             self.assertEqual(player.current["videoId"], "B")
             self.assertEqual(shuffle.call_count, 1)
 
+    def test_stream_error_retries_then_skips(self):
+        player = QueuePlayer(Path("/tmp/omarchy-ytmusic-test"))
+        player.queue = [{"videoId": "broken"}, {"videoId": "second"}]
+        player.index = 0
+        player.playing = True
+        calls = []
+
+        def fake_play(start=True, expose_error=True):
+            calls.append(player.current["videoId"])
+            if player.current["videoId"] == "broken":
+                raise PlayerError("SABR request failed: 403")
+            player.playing = True
+
+        player._play_current = fake_play
+        player.mpv = EventMpv([{"event": "end-file", "reason": "error"}], player)
+
+        with patch("player.time.sleep"):
+            player._loop()
+
+        self.assertEqual(player.index, 1)
+        self.assertTrue(player.playing)
+        self.assertEqual(calls, ["broken", "broken", "broken", "second"])
+
+    def test_eof_advances_even_when_play_flag_is_stale(self):
+        player = QueuePlayer(Path("/tmp/omarchy-ytmusic-test"))
+        player.queue = [{"videoId": "first"}, {"videoId": "second"}]
+        player.index = 0
+        player.playing = False
+
+        def fake_play(start=True, expose_error=True):
+            player.playing = True
+
+        player._play_current = fake_play
+        player.mpv = EventMpv([{"event": "end-file", "reason": "eof"}], player)
+
+        player._loop()
+
+        self.assertEqual(player.index, 1)
+        self.assertTrue(player.playing)
+
+    def test_duplicate_end_events_advance_once(self):
+        player = QueuePlayer(Path("/tmp/omarchy-ytmusic-test"))
+        player.queue = [
+            {"videoId": "first"},
+            {"videoId": "second"},
+            {"videoId": "third"},
+        ]
+        player.index = 0
+        player.playing = True
+
+        def fake_play(start=True, expose_error=True):
+            player.playing = True
+
+        player._play_current = fake_play
+        player.mpv = EventMpv([
+            {"event": "end-file", "reason": "eof"},
+            {"event": "property-change", "name": "eof-reached", "data": True},
+        ], player)
+
+        player._loop()
+
+        self.assertEqual(player.index, 1)
+
     def test_shuffle_previous_uses_history_and_next_restores_forward_track(self):
         player = QueuePlayer(Path("/tmp/omarchy-ytmusic-test"))
         player.ensure_started = lambda: None

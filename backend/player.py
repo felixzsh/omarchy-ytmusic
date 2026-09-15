@@ -557,6 +557,10 @@ class QueuePlayer:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._pending_eof = False
+        # True between a track ending/failing and the replacement file loading.
+        # Swallows the duplicate eof/end-file events mpv emits for the old file
+        # so one end cannot advance the queue twice.
+        self._ending = False
         self._generation = 0
         self._sleep_deadline = 0.0
         self._sleep_after = ""
@@ -1017,6 +1021,7 @@ class QueuePlayer:
                 continue
             changed = False
             eof = False
+            failed = False
             for event in events:
                 name = event.get("event")
                 if name == "property-change":
@@ -1072,7 +1077,7 @@ class QueuePlayer:
                         changed = True
                     elif prop == "volume" and isinstance(value, (int, float)):
                         self.volume = int(max(0, min(100, value)))
-                    elif prop == "eof-reached" and value is True:
+                    elif prop == "eof-reached" and value is True and not self._ending:
                         eof = True
                     elif prop == "media-title":
                         shown = str(value or "")
@@ -1084,6 +1089,7 @@ class QueuePlayer:
                     self._stream_started = False
                     self._stream_position_seen = False
                     self._stream_position_mode = None
+                    self._ending = False
                     self._publish_title()
                 elif name == "playback-restart":
                     self._publish_title()
@@ -1091,23 +1097,32 @@ class QueuePlayer:
                     self._stream_position_mode = None
                     self.playing = self._stream_position_seen
                     self.error = ""
+                    self._ending = False
                     changed = True
-                elif name == "end-file":
+                elif name == "end-file" and not self._ending:
                     reason = str(event.get("reason") or "")
                     if reason in ("eof", "0"):
                         eof = True
                     elif reason == "error":
+                        failed = True
+            if eof or failed:
+                # A finished or failed track must always move the queue on. A
+                # stream error used to stop playback for good, and a missed
+                # eof used to strand the player on the last song.
+                self._ending = True
+                if failed:
+                    # Retry the current song, then skip unplayable tracks,
+                    # exactly like a queue transition.
+                    if not self._play_next_with_recovery():
                         self.playing = False
-                        self.error = self.error or "Playback failed"
                         changed = True
-            if eof and self.playing:
-                if self.duration_ms > 0:
-                    self.position_ms = self.duration_ms
-                if self._advance():
+                elif self._advance():
                     if not self._play_next_with_recovery():
                         self.playing = False
                         changed = True
                 else:
+                    if self.duration_ms > 0:
+                        self.position_ms = self.duration_ms
                     self.playing = False
                     changed = True
             if changed:

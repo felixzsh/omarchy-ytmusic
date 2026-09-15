@@ -30,7 +30,14 @@ talks to a private Unix socket at `$XDG_RUNTIME_DIR/omarchy-ytmusic/backend.sock
 using versioned newline-delimited JSON.
 Artwork URLs are rewritten to a loopback HTTP proxy; the backend fetches and
 keeps a bounded in-memory cache of remote thumbnails so Quickshell does not
-open HTTPS image requests directly.
+open HTTPS image requests directly. The proxy prefers a stable loopback port
+(`OMARCHY_YTMUSIC_ARTWORK_PORT`, default 47654, falling back to an ephemeral
+one) so cached image URLs survive a backend restart instead of reloading with
+"Connection refused".
+
+A track that finishes or whose stream dies always moves the queue on. A dead
+stream retries the current song and then skips, matching the recovery used for
+queue transitions, instead of stopping playback until the backend restarts.
 
 The backend is a Python process activated on demand by a systemd user socket
 (`omarchy-ytmusic.socket`). The Node resolver is a child of that backend, so a

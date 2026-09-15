@@ -12,7 +12,13 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from server import Backend, activated_socket, idle_should_exit  # noqa: E402
+from server import (  # noqa: E402
+    Backend,
+    DEFAULT_ARTWORK_PORT,
+    activated_socket,
+    idle_should_exit,
+    preferred_artwork_port,
+)
 from catalog import CatalogError  # noqa: E402
 
 
@@ -89,7 +95,8 @@ class ArtworkProxyTests(unittest.TestCase):
                 return b"image-data"
 
         backend = Backend()
-        backend._start_artwork_proxy()
+        with patch("server.preferred_artwork_port", return_value=0):
+            backend._start_artwork_proxy()
         original = "https://i.ytimg.com/vi/test/hqdefault.jpg"
         try:
             with patch("server.urlopen", return_value=Response()):
@@ -97,6 +104,39 @@ class ArtworkProxyTests(unittest.TestCase):
                     self.assertEqual(response.read(), b"image-data")
         finally:
             backend._stop_artwork_proxy()
+
+    def test_artwork_port_defaults_and_validates_override(self):
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(preferred_artwork_port(), DEFAULT_ARTWORK_PORT)
+        with patch.dict("os.environ",
+                        {"OMARCHY_YTMUSIC_ARTWORK_PORT": "51234"}, clear=True):
+            self.assertEqual(preferred_artwork_port(), 51234)
+        with patch.dict("os.environ",
+                        {"OMARCHY_YTMUSIC_ARTWORK_PORT": "nope"}, clear=True):
+            self.assertEqual(preferred_artwork_port(), DEFAULT_ARTWORK_PORT)
+        with patch.dict("os.environ",
+                        {"OMARCHY_YTMUSIC_ARTWORK_PORT": "70000"}, clear=True):
+            self.assertEqual(preferred_artwork_port(), DEFAULT_ARTWORK_PORT)
+
+    def test_artwork_proxy_reuses_the_configured_port(self):
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+
+        with patch("server.preferred_artwork_port", return_value=port):
+            first = Backend()
+            first._start_artwork_proxy()
+            base = first.artwork_base_url
+            first._stop_artwork_proxy()
+
+            second = Backend()
+            second._start_artwork_proxy()
+            try:
+                self.assertIn(f":{port}/artwork", base)
+                self.assertEqual(second.artwork_base_url, base)
+            finally:
+                second._stop_artwork_proxy()
 
 
 class RequireCatalogTests(unittest.TestCase):

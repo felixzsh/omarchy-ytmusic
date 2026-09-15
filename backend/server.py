@@ -58,6 +58,23 @@ def socket_path() -> Path:
     return runtime_dir() / "backend.sock"
 
 
+# Loopback-only cache for remote thumbnails. Keep the port stable across
+# backend restarts so the shell does not have to reload every artwork URL.
+DEFAULT_ARTWORK_PORT = 47654
+
+
+def preferred_artwork_port() -> int:
+    raw = str(os.environ.get("OMARCHY_YTMUSIC_ARTWORK_PORT", "")).strip()
+    if raw:
+        try:
+            port = int(raw)
+        except ValueError:
+            port = DEFAULT_ARTWORK_PORT
+    else:
+        port = DEFAULT_ARTWORK_PORT
+    return port if 1 <= port <= 65535 else DEFAULT_ARTWORK_PORT
+
+
 def activated_socket() -> socket.socket | None:
     """Return the listening socket handed over by systemd, if any."""
     if os.environ.get("LISTEN_PID") != str(os.getpid()):
@@ -250,7 +267,19 @@ class Backend:
             def log_message(self, _format, *_args):
                 pass
 
-        self._artwork_httpd = ThreadingHTTPServer(("127.0.0.1", 0), ArtworkHandler)
+        # Prefer a stable port so artwork URLs minted before a backend restart
+        # stay valid: the shell caches images by URL, and a fresh random port
+        # made every reconnect reload them with "Connection refused".
+        httpd = None
+        for port in (preferred_artwork_port(), 0):
+            try:
+                httpd = ThreadingHTTPServer(("127.0.0.1", port), ArtworkHandler)
+                break
+            except OSError:
+                httpd = None
+        if httpd is None:
+            raise OSError("could not start the artwork proxy")
+        self._artwork_httpd = httpd
         self._artwork_httpd.daemon_threads = True
         port = self._artwork_httpd.server_address[1]
         self.artwork_base_url = f"http://127.0.0.1:{port}/artwork"
