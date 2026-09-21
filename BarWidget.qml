@@ -168,6 +168,34 @@ BarWidget {
     function toggleFullPlayer(): string {
       return root.toggleFullPlayerShortcut()
     }
+    function debugLookup(): string {
+      var shell = root.bar ? root.bar.shell : null
+      var lookup = shell ? shell._serviceLookup : null
+      return JSON.stringify({
+        hasBar: !!root.bar,
+        moduleName: root.moduleName,
+        barModuleName: root.bar ? root.bar.moduleName : "",
+        barPluginId: root.bar ? root.bar.pluginId : "",
+        hasShell: !!shell,
+        shellPluginId: shell ? String(shell.pluginId) : "",
+        hasServiceFor: !!(shell && typeof shell.serviceFor === "function"),
+        hasLookup: typeof lookup === "function",
+        hasSummon: !!(shell && typeof shell.summon === "function"),
+        hasModuleWidgets: !!(root.bar && typeof root.bar.moduleWidgets === "function"),
+        hasFirstPartyServiceFor: !!(shell && typeof shell.firstPartyServiceFor === "function"),
+        serviceValue: shell && typeof shell.serviceFor === "function"
+          ? String(shell.serviceFor("felixzsh.ytmusic")) : "n/a",
+        ytmusicNull: root.ytmusic === null
+      })
+    }
+    function debugOpenMini(): string {
+      root.open()
+      return root.popupOpen ? "open" : "closed"
+    }
+    function debugCloseMini(): string {
+      root.close()
+      return "closed"
+    }
   }
 
   function openCurrentArtist() {
