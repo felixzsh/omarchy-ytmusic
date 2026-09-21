@@ -492,6 +492,23 @@ Item {
       subtitle: item.subtitle }, "Starting radio")
   }
 
+  function startMix(item) {
+    if (!item) return
+    if (item.type === "track") {
+      startRadio(item)
+      return
+    }
+    var fields = { radio: true, name: item.name, subtitle: item.subtitle }
+    if (item.type === "playlist") fields.playlist_id = item.id || item.playlistId
+    else if (item.type === "album") fields.album_id = item.id
+    else if (item.type === "artist") fields.artist_id = item.id
+    if (!fields.playlist_id && !fields.album_id && !fields.artist_id) {
+      fail("A mix is not available for this item")
+      return
+    }
+    command("load", fields, "Starting mix")
+  }
+
   function queueItem(item) {
     if (!item || item.type !== "track") {
       fail("Only songs can be queued")

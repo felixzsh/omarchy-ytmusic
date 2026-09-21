@@ -549,6 +549,22 @@ class Catalog:
             return []
         return map_items((raw or {}).get("tracks"), limit=limit)
 
+    def playlist_mix(self, playlist_id: str, limit: int = 50) -> list[dict]:
+        """Return the endless mix (radio) YouTube Music builds from a source.
+
+        User playlists and albums need the ``RDAMPL`` seed prefix; ids that are
+        already mixes (artist radios, personal mixes) are used as they are.
+        """
+        playlist_id = _text(playlist_id)
+        if not playlist_id:
+            return []
+        seed = f"RDAMPL{playlist_id}" if playlist_id.startswith(("PL", "OLA")) else playlist_id
+        try:
+            raw = self.yt.get_watch_playlist(playlistId=seed, limit=limit)
+        except Exception as exc:
+            raise CatalogError(str(exc)) from exc
+        return map_items((raw or {}).get("tracks"), limit=limit)
+
     def lyrics_browse_id(self, video_id: str) -> str:
         try:
             raw = self.yt.get_watch_playlist(videoId=video_id, limit=1)

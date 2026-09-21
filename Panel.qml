@@ -397,6 +397,18 @@ Item {
       }
       Button {
         width: parent.width
+        visible: root.contextItem && root.contextItem.kind === "context"
+        text: "Start mix"
+        iconText: "󰐹"
+        leftAlign: true
+        foreground: root.foreground
+        onClicked: {
+          if (root.service) root.service.startMix(root.contextItem)
+          mediaContextMenu.close()
+        }
+      }
+      Button {
+        width: parent.width
         visible: root.contextItem && root.contextItem.type === "track"
         text: "Add to playlist"
         iconText: "󱁐"
@@ -919,6 +931,9 @@ Item {
         ? "No playlists yet." : "Sign in to see playlists."
       onActivated: function(item) { root.openItem(item) }
       onOpened: function(item) { root.openItem(item) }
+      onContextRequested: function(item, x, y, index, items) {
+        root.openMediaContext(item, x, y, items)
+      }
       onViewStateChanged: function(filterText, sortKey) {
         root.playlistFilter = filterText
         root.playlistSort = sortKey
@@ -978,6 +993,14 @@ Item {
               iconText: "󰐹"
               foreground: root.foreground
               onClicked: if (root.service) root.service.startRadio(root.service.detailItem)
+            }
+            Button {
+              visible: root.service && root.service.detailItem
+                && root.service.detailItem.kind === "context"
+              text: "Mix"
+              iconText: "󰐹"
+              foreground: root.foreground
+              onClicked: if (root.service) root.service.startMix(root.service.detailItem)
             }
           }
         }

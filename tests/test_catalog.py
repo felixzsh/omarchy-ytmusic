@@ -8,12 +8,27 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from catalog import (  # noqa: E402
+    Catalog,
+    CatalogError,
     context_item,
     duration_ms,
     map_items,
     thumbnail_url,
     track_item,
 )
+
+
+class FakeYTMusic:
+    def __init__(self, tracks=None, error=None):
+        self.tracks = tracks or []
+        self.error = error
+        self.calls = []
+
+    def get_watch_playlist(self, playlistId=None, limit=25, radio=False, shuffle=False):
+        self.calls.append(playlistId)
+        if self.error:
+            raise self.error
+        return {"tracks": self.tracks}
 
 
 class CatalogTests(unittest.TestCase):
@@ -72,6 +87,32 @@ class CatalogTests(unittest.TestCase):
             ]
         })
         self.assertEqual(url, "b")
+
+    def test_playlist_mix_seeds_real_playlists(self):
+        yt = FakeYTMusic(tracks=[{"title": "Song", "videoId": "abcdefghijk"}])
+        tracks = Catalog(yt).playlist_mix("PL_123")
+        self.assertEqual(yt.calls, ["RDAMPLPL_123"])
+        self.assertEqual(tracks[0]["videoId"], "abcdefghijk")
+
+    def test_playlist_mix_seeds_albums_too(self):
+        yt = FakeYTMusic(tracks=[])
+        Catalog(yt).playlist_mix("OLAK5uy_album")
+        self.assertEqual(yt.calls, ["RDAMPLOLAK5uy_album"])
+
+    def test_playlist_mix_keeps_existing_mix_ids(self):
+        yt = FakeYTMusic(tracks=[])
+        Catalog(yt).playlist_mix("RDEMartist")
+        self.assertEqual(yt.calls, ["RDEMartist"])
+
+    def test_playlist_mix_skips_empty_ids(self):
+        yt = FakeYTMusic(tracks=[])
+        self.assertEqual(Catalog(yt).playlist_mix(""), [])
+        self.assertEqual(yt.calls, [])
+
+    def test_playlist_mix_raises_catalog_error(self):
+        yt = FakeYTMusic(error=RuntimeError("boom"))
+        with self.assertRaises(CatalogError):
+            Catalog(yt).playlist_mix("PL_123")
 
 
 if __name__ == "__main__":

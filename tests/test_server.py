@@ -162,5 +162,75 @@ class RequireCatalogTests(unittest.TestCase):
             backend.require_catalog()
 
 
+class LoadMixTests(unittest.TestCase):
+    class FakePlayer:
+        def __init__(self):
+            self.loads = []
+
+        def load(self, items, index=0, play=True):
+            self.loads.append({"items": items, "index": index, "play": play})
+
+        def note_activity(self):
+            pass
+
+    def backend_with(self, catalog):
+        backend = Backend()
+        backend.catalog = catalog
+        backend.player = self.FakePlayer()
+        backend.state = lambda: {}
+        return backend
+
+    def test_playlist_radio_uses_the_mix(self):
+        class FakeCatalog:
+            def playlist_mix(self, playlist_id):
+                return [{"videoId": "mixvideo001", "type": "track"}]
+
+            def playlist(self, playlist_id):
+                return {"tracks": [{"videoId": "plvideo0001", "type": "track"}]}
+
+        backend = self.backend_with(FakeCatalog())
+        backend.load({"playlist_id": "PL1", "radio": True})
+        self.assertEqual(backend.player.loads[0]["items"][0]["videoId"], "mixvideo001")
+
+    def test_playlist_radio_falls_back_to_the_playlist(self):
+        class FakeCatalog:
+            def playlist_mix(self, playlist_id):
+                raise CatalogError("no mix")
+
+            def playlist(self, playlist_id):
+                return {"tracks": [{"videoId": "plvideo0001", "type": "track"}]}
+
+        backend = self.backend_with(FakeCatalog())
+        backend.load({"playlist_id": "PL1", "radio": True})
+        self.assertEqual(backend.player.loads[0]["items"][0]["videoId"], "plvideo0001")
+
+    def test_plain_playlist_load_is_unchanged(self):
+        class FakeCatalog:
+            def playlist_mix(self, playlist_id):
+                raise AssertionError("mix should not be requested")
+
+            def playlist(self, playlist_id):
+                return {"tracks": [{"videoId": "plvideo0001", "type": "track"}]}
+
+        backend = self.backend_with(FakeCatalog())
+        backend.load({"playlist_id": "PL1"})
+        self.assertEqual(backend.player.loads[0]["items"][0]["videoId"], "plvideo0001")
+
+    def test_artist_radio_prefers_the_radio_id(self):
+        class FakeCatalog:
+            def playlist_mix(self, seed_id):
+                self.seed = seed_id
+                return [{"videoId": "artistmix01", "type": "track"}]
+
+            def artist(self, artist_id):
+                return {"tracks": [], "radioId": "RDEMexample"}
+
+        catalog = FakeCatalog()
+        backend = self.backend_with(catalog)
+        backend.load({"artist_id": "UC123", "radio": True})
+        self.assertEqual(catalog.seed, "RDEMexample")
+        self.assertEqual(backend.player.loads[0]["items"][0]["videoId"], "artistmix01")
+
+
 if __name__ == "__main__":
     unittest.main()

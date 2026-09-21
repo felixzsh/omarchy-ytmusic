@@ -330,6 +330,20 @@ class Backend:
         with self._catalog_lock:
             return self.catalog.watch_playlist(video_id)
 
+    def _mix_tracks(self, seed_id: str) -> list[dict]:
+        seed_id = str(seed_id or "").strip()
+        if not seed_id:
+            return []
+        try:
+            catalog = self.require_catalog()
+        except CatalogError:
+            return []
+        with self._catalog_lock:
+            try:
+                return catalog.playlist_mix(seed_id)
+            except CatalogError:
+                return []
+
     def handle(self, message: dict[str, Any]) -> dict[str, Any]:
         version = message.get("v", PROTOCOL_VERSION)
         request_id = message.get("id")
@@ -554,14 +568,24 @@ class Backend:
         if isinstance(items, list) and items:
             resolved = [item for item in items if isinstance(item, dict) and item.get("videoId")]
         elif playlist_id:
-            resolved = self.require_catalog().playlist(playlist_id).get("tracks") or []
+            if radio:
+                resolved = self._mix_tracks(playlist_id)
+            if not resolved:
+                resolved = self.require_catalog().playlist(playlist_id).get("tracks") or []
         elif album_id:
-            resolved = self.require_catalog().album(album_id).get("tracks") or []
+            detail = self.require_catalog().album(album_id)
+            if radio:
+                resolved = self._mix_tracks(detail.get("playlistId"))
+            if not resolved:
+                resolved = detail.get("tracks") or []
         elif artist_id:
             detail = self.require_catalog().artist(artist_id)
-            resolved = detail.get("tracks") or []
+            if radio and detail.get("radioId"):
+                resolved = self._mix_tracks(str(detail["radioId"]))
+            if not resolved:
+                resolved = detail.get("tracks") or []
             if not resolved and detail.get("radioId"):
-                resolved = self.require_catalog().playlist(str(detail["radioId"])).get("tracks") or []
+                resolved = self._mix_tracks(str(detail["radioId"]))
         elif video_id:
             seed = {
                 "kind": "item",

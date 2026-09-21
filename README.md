@@ -144,6 +144,7 @@ optional `SUPER + SHIFT + M` binding yourself if you added it.
 
 - Browse Home, Liked Songs, library songs/albums/artists, and playlists.
 - Queue tracks, start song radio, shuffle, and repeat.
+- Start a Mix from any playlist, album, or artist, not just a single song.
 - Set a sleep timer from the full player.
 - The bar slot is the YouTube Music logo only. Choose whether a click opens
   the mini-player or the full player, and whether the keyboard shortcut
