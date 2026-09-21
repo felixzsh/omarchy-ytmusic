@@ -232,5 +232,43 @@ class LoadMixTests(unittest.TestCase):
         self.assertEqual(backend.player.loads[0]["items"][0]["videoId"], "artistmix01")
 
 
+class DetailCommandTests(unittest.TestCase):
+    """The request id must never double as a page id."""
+
+    class FakeCatalog:
+        def playlist(self, playlist_id):
+            return {"id": playlist_id, "tracks": [{"videoId": "abcdefghijk"}]}
+
+        def album(self, album_id):
+            return {"id": album_id, "tracks": [{"videoId": "abcdefghijk"}]}
+
+        def artist(self, artist_id):
+            return {"id": artist_id, "tracks": [{"videoId": "abcdefghijk"}]}
+
+    def handle(self, message):
+        backend = Backend()
+        backend.catalog = self.FakeCatalog()
+        return backend.handle(message)
+
+    def test_get_playlist_reads_playlist_id_and_keeps_request_id(self):
+        reply = self.handle({"v": 1, "id": 7, "command": "get_playlist",
+                             "playlist_id": "PL_abc"})
+        self.assertEqual(reply["id"], 7)
+        self.assertTrue(reply["ok"])
+        self.assertEqual(reply["result"]["id"], "PL_abc")
+
+    def test_get_album_reads_album_id(self):
+        reply = self.handle({"v": 1, "id": 8, "command": "get_album",
+                             "album_id": "MPREb_abc"})
+        self.assertEqual(reply["id"], 8)
+        self.assertEqual(reply["result"]["id"], "MPREb_abc")
+
+    def test_get_artist_reads_artist_id(self):
+        reply = self.handle({"v": 1, "id": 9, "command": "get_artist",
+                             "artist_id": "UCabc"})
+        self.assertEqual(reply["id"], 9)
+        self.assertEqual(reply["result"]["id"], "UCabc")
+
+
 if __name__ == "__main__":
     unittest.main()

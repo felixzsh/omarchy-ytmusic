@@ -4,6 +4,8 @@
 
 - Start a Mix from a playlist, album, or artist, from its detail page or the
   right-click menu, alongside the existing per-song radio.
+- Fix playlist, album, and artist pages never filling in their songs: the page
+  id was sent in the protocol's request-id field, so the reply was dropped.
 - Keep playing when a stream dies mid-track: a failed stream now retries the
   song and then skips, instead of stopping until the backend is restarted.
 - Advance on end-of-file even when the play flag is momentarily stale, and

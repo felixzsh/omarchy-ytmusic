@@ -682,7 +682,12 @@ Item {
       fail("That page is not available")
       return
     }
-    command(commandName, { id: ident }, "", function(ok, result) {
+    // "id" is the protocol request id, so each page type uses its own field.
+    var fields = {}
+    if (item.type === "album") fields.album_id = ident
+    else if (item.type === "artist") fields.artist_id = ident
+    else fields.playlist_id = ident
+    command(commandName, fields, "", function(ok, result) {
       root.detailLoading = false
       if (!ok || !result) return
       root.detailItem = result
