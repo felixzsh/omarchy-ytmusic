@@ -55,6 +55,17 @@ TestCase {
     verify(Api.lyricsSong("abc", "Song", "Artist", "Album", 10, "", 3) !== null)
   }
 
+  function test_isPlaybackState_rejectsCatalogPayloads() {
+    verify(Api.isPlaybackState({ protocol_version: 1, lifecycle: "ready" }))
+    verify(!Api.isPlaybackState({ home: [], signed_in: true }))
+    verify(!Api.isPlaybackState({ items: [] }))
+    verify(!Api.isPlaybackState({ liked: true }))
+    verify(!Api.isPlaybackState({ queue: [] }))
+    verify(!Api.isPlaybackState({}))
+    verify(!Api.isPlaybackState([]))
+    verify(!Api.isPlaybackState(null))
+  }
+
   function test_redact_hidesCookies() {
     var text = Api.redact("cookie: SID=supersecret")
     verify(text.indexOf("supersecret") < 0)

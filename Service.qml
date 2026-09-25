@@ -344,7 +344,7 @@ Item {
           return
         }
         lastError = ""
-        if (result && typeof result === "object") root.applyBackendState(result)
+        if (Api.isPlaybackState(result)) root.applyBackendState(result)
         if (successMessage) root.succeed(successMessage)
         if (typeof done === "function") done(true, result)
       })

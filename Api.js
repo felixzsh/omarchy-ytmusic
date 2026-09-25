@@ -32,6 +32,15 @@ function parseJson(text, fallback) {
   }
 }
 
+// Only state() payloads from the backend describe playback. Catalog commands
+// (browse, search, like, playlist pages...) answer with their own objects and
+// must never replace the playback state, or the now-playing view blanks out
+// until the next broadcast.
+function isPlaybackState(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  return value.protocol_version !== undefined && value.lifecycle !== undefined
+}
+
 function barTrackText(title, artist, showTitle, showArtist) {
   var cleanTitle = String(title || "").trim()
   var cleanArtist = String(artist || "").trim()
