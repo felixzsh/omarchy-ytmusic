@@ -3,6 +3,7 @@ import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 import "Api.js" as Api
@@ -14,7 +15,7 @@ BarWidget {
 
   readonly property var ytmusic: bar && bar.shell
     ? bar.shell.serviceFor("felixzsh.ytmusic") : null
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
+  readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
   readonly property string surfaceKey: "ytmusic-popup-" + String(root)
   readonly property string lyricsRequestKey: surfaceKey + "-lyrics"
   readonly property bool miniPlayerEnabled:
@@ -577,8 +578,8 @@ BarWidget {
             width: Style.space(78)
             height: width
             radius: Style.cornerRadius
-            color: Style.normalFillFor(root.foreground, Color.accent)
-            borderSpec: Border.controlSpec("normal", root.foreground, Color.accent)
+            color: Style.normalFillFor(root.foreground, Commons.Color.accent)
+            borderSpec: Border.controlSpec("normal", root.foreground, Commons.Color.accent)
 
             Image {
               id: popupArtwork

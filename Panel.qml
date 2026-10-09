@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import Quickshell
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 import "Api.js" as Api
@@ -48,9 +49,9 @@ Item {
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "felixzsh.ytmusic"
   readonly property string lyricsRequestKey: "ytmusic-panel-lyrics"
-  readonly property color foreground: Color.foreground
-  readonly property color background: Color.background
-  readonly property color accent: Color.accent
+  readonly property color foreground: Commons.Color.foreground
+  readonly property color background: Commons.Color.background
+  readonly property color accent: Commons.Color.accent
   readonly property string fontFamily: Style.font.family
   readonly property bool accountConnected: service && service.accountConnected
   readonly property bool sessionPending: service && service.sessionPending
@@ -67,7 +68,7 @@ Item {
   readonly property var panelBar: QtObject {
     readonly property color foreground: root.foreground
     readonly property color background: root.background
-    readonly property color urgent: Color.urgent
+    readonly property color urgent: Commons.Color.urgent
     readonly property string fontFamily: root.fontFamily
     readonly property string position: "top"
     readonly property bool vertical: false
@@ -354,8 +355,8 @@ Item {
     padding: Style.space(8)
     background: BorderSurface {
       radius: Style.cornerRadius
-      color: Color.popups.background
-      borderSpec: Border.flat(Color.popups.border, 1)
+      color: Commons.Color.popups.background
+      borderSpec: Border.flat(Commons.Color.popups.border, 1)
     }
     Column {
       width: parent.width
@@ -443,8 +444,8 @@ Item {
     padding: Style.space(12)
     background: BorderSurface {
       radius: Style.cornerRadius
-      color: Color.popups.background
-      borderSpec: Border.flat(Color.popups.border, 1)
+      color: Commons.Color.popups.background
+      borderSpec: Border.flat(Commons.Color.popups.border, 1)
     }
     Column {
       width: parent.width
@@ -491,8 +492,8 @@ Item {
     padding: Style.space(12)
     background: BorderSurface {
       radius: Style.cornerRadius
-      color: Color.popups.background
-      borderSpec: Border.flat(Color.popups.border, 1)
+      color: Commons.Color.popups.background
+      borderSpec: Border.flat(Commons.Color.popups.border, 1)
     }
     Column {
       width: parent.width
@@ -546,8 +547,8 @@ Item {
     padding: Style.space(12)
     background: BorderSurface {
       radius: Style.cornerRadius
-      color: Color.popups.background
-      borderSpec: Border.flat(Color.popups.border, 1)
+      color: Commons.Color.popups.background
+      borderSpec: Border.flat(Commons.Color.popups.border, 1)
     }
     Column {
       width: parent.width
@@ -605,8 +606,8 @@ Item {
     padding: Style.space(16)
     background: BorderSurface {
       radius: Style.cornerRadius
-      color: Color.popups.background
-      borderSpec: Border.flat(Color.popups.border, 1)
+      color: Commons.Color.popups.background
+      borderSpec: Border.flat(Commons.Color.popups.border, 1)
     }
     Column {
       width: parent.width
@@ -660,8 +661,8 @@ Item {
     padding: Style.space(12)
     background: BorderSurface {
       radius: Style.cornerRadius
-      color: Color.popups.background
-      borderSpec: Border.flat(Color.popups.border, 1)
+      color: Commons.Color.popups.background
+      borderSpec: Border.flat(Commons.Color.popups.border, 1)
     }
     LyricsInstallPrompt {
       width: parent.width
@@ -754,7 +755,7 @@ Item {
           width: parent.width
           visible: root.service && root.service.lastError !== ""
           text: root.service ? root.service.lastError : ""
-          color: Color.urgent
+          color: Commons.Color.urgent
           wrapMode: Text.WordWrap
         }
         Button {
@@ -1504,7 +1505,7 @@ Item {
               Button {
                 id: closeButton
                 iconText: "󰅖"
-                foreground: root.escapeCloseArmed ? Color.urgent : root.foreground
+                foreground: root.escapeCloseArmed ? Commons.Color.urgent : root.foreground
                 tooltipText: root.escapeCloseArmed ? "Press Esc again to close"
                   : root.shortcutHint("Close", "Esc, Esc")
                 onClicked: root.requestClose()
@@ -1521,7 +1522,7 @@ Item {
               height: implicitHeight
               visible: root.service && (root.service.lastError !== "" || root.service.statusMessage !== "")
               color: root.service && root.service.lastError !== ""
-                ? Style.selectedFillFor(root.foreground, Color.urgent)
+                ? Style.selectedFillFor(root.foreground, Commons.Color.urgent)
                 : Style.normalFillFor(root.foreground, root.accent)
               radius: Style.cornerRadius
               Text {

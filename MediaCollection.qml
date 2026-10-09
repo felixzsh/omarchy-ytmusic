@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 import "Api.js" as Api
@@ -204,7 +205,7 @@ Item {
         width: visible ? Math.max(80, parent.width
           - (sortButton.visible ? sortButton.width + parent.spacing : 0)
           - countLabel.width - parent.spacing) : 0
-        foreground: Color.foreground
+        foreground: Commons.Color.foreground
         placeholderText: "Filter this list"
         text: root.filterText
         onTextEdited: {
@@ -219,7 +220,7 @@ Item {
         visible: root.showSort
         text: root.sortLabel()
         iconText: "󰒺"
-        foreground: Color.foreground
+        foreground: Commons.Color.foreground
         tooltipText: "Change sort order"
         onClicked: root.cycleSort()
       }
@@ -230,7 +231,7 @@ Item {
         text: root.visibleItems.length
           + (root.filterText ? (root.visibleItems.length === 1 ? " match" : " matches")
             : (root.visibleItems.length === 1 ? " item" : " items"))
-        color: Qt.darker(Color.foreground, 1.42)
+        color: Qt.darker(Commons.Color.foreground, 1.42)
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
       }
@@ -270,8 +271,8 @@ Item {
         required property var modelData
         required property int index
         itemData: modelData
-        foreground: Color.foreground
-        accent: Color.accent
+        foreground: Commons.Color.foreground
+        accent: Commons.Color.accent
         fontFamily: Style.font.family
         selected: ListView.isCurrentItem
         browseOnActivate: root.browseContexts && modelData.kind === "context"
@@ -314,7 +315,7 @@ Item {
       height: visible ? contentHeight : 0
       visible: !root.loading && root.visibleItems.length === 0
       text: root.emptyMessage
-      color: Qt.darker(Color.foreground, 1.4)
+      color: Qt.darker(Commons.Color.foreground, 1.4)
       font.family: Style.font.family
       font.pixelSize: Style.font.bodySmall
       horizontalAlignment: Text.AlignHCenter
@@ -327,7 +328,7 @@ Item {
       height: visible ? implicitHeight : 0
       visible: root.loading || root.hasMore
       text: root.loading ? "Loading…" : "Load more"
-      foreground: Color.foreground
+      foreground: Commons.Color.foreground
       enabled: root.hasMore && !root.loading
       onClicked: root.loadMoreRequested()
     }
@@ -344,8 +345,8 @@ Item {
     enabled: false
     z: 20
     radius: Style.cornerRadius
-    color: Style.selectedFillFor(Color.foreground, Color.accent)
-    borderSpec: Border.controlSpec("selected", Color.foreground, Color.accent)
+    color: Style.selectedFillFor(Commons.Color.foreground, Commons.Color.accent)
+    borderSpec: Border.controlSpec("selected", Commons.Color.foreground, Commons.Color.accent)
     opacity: 0.94
 
     Row {
@@ -360,7 +361,7 @@ Item {
         Text {
           width: parent.width
           text: root.dragItem ? String(root.dragItem.name || "Untitled") : ""
-          color: Color.foreground
+          color: Commons.Color.foreground
           font.family: Style.font.family
           font.pixelSize: Style.font.body
           font.bold: true
@@ -370,7 +371,7 @@ Item {
         Text {
           width: parent.width
           text: root.dragItem ? String(root.dragItem.subtitle || "") : ""
-          color: Qt.darker(Color.foreground, 1.3)
+          color: Qt.darker(Commons.Color.foreground, 1.3)
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
