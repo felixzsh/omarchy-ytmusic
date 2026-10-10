@@ -1537,8 +1537,8 @@ Item {
               Column {
                 width: Math.max(80, parent.width
                   - (backButton.visible ? backButton.width + parent.spacing : 0)
-                  - shortcutHelpButton.width - refreshButton.width - closeButton.width
-                  - parent.spacing * 3)
+                  - shortcutHelpButton.width - refreshButton.width
+                  - parent.spacing * 2)
                 anchors.verticalCenter: parent.verticalCenter
                 Text {
                   width: parent.width
@@ -1571,19 +1571,12 @@ Item {
                 tooltipText: "Refresh"
                 onClicked: {
                   if (!root.service) return
+                  root.service.succeed("Refreshing…")
                   if (root.currentTab === "search") root.runSearch()
                   else if (root.currentTab === "detail" && root.service.detailItem)
                     root.service.openDetail(root.service.detailItem)
                   else root.service.refreshView(root.currentTab)
                 }
-              }
-              Button {
-                id: closeButton
-                iconText: "󰅖"
-                foreground: root.escapeCloseArmed ? Commons.Color.urgent : root.foreground
-                tooltipText: root.escapeCloseArmed ? "Press Esc again to close"
-                  : root.shortcutHint("Close", "Esc, Esc")
-                onClicked: root.requestClose()
               }
             }
 
