@@ -350,6 +350,7 @@ Item {
 
   Popup {
     id: mediaContextMenu
+    parent: focusScope
     modal: false
     width: Style.space(220)
     padding: Style.space(8)
@@ -438,6 +439,7 @@ Item {
 
   Popup {
     id: playlistPicker
+    parent: focusScope
     modal: true
     anchors.centerIn: parent
     width: Style.space(320)
@@ -486,6 +488,7 @@ Item {
 
   Popup {
     id: createPlaylistPopup
+    parent: focusScope
     modal: true
     anchors.centerIn: parent
     width: Style.space(320)
@@ -541,6 +544,7 @@ Item {
 
   Popup {
     id: sleepPopup
+    parent: focusScope
     modal: true
     anchors.centerIn: parent
     width: Style.space(280)
@@ -600,6 +604,7 @@ Item {
 
   Popup {
     id: shortcutHelpPopup
+    parent: focusScope
     modal: true
     anchors.centerIn: parent
     width: Style.space(420)
@@ -630,6 +635,7 @@ Item {
           { keys: "Ctrl+Shift+L", action: "Lyrics" },
           { keys: "Alt+Left", action: "Back" },
           { keys: "Ctrl+,", action: "Settings" },
+          { keys: "Ctrl+/", action: "This help" },
           { keys: "Esc", action: "Close popups, then the player" }
         ]
         Row {
@@ -650,11 +656,17 @@ Item {
           }
         }
       }
+      Button {
+        text: "Close"
+        foreground: root.foreground
+        onClicked: shortcutHelpPopup.close()
+      }
     }
   }
 
   Popup {
     id: lyricsInstallPopup
+    parent: focusScope
     modal: true
     anchors.centerIn: parent
     width: Style.space(360)
@@ -676,7 +688,9 @@ Item {
   Component {
     id: loginPage
     Flickable {
+      anchors.fill: parent
       clip: true
+      contentWidth: width
       contentHeight: loginColumn.implicitHeight
       Column {
         id: loginColumn
@@ -774,69 +788,123 @@ Item {
   Component {
     id: homePage
     Flickable {
+      anchors.fill: parent
       clip: true
+      contentWidth: width
       contentHeight: homeColumn.implicitHeight
       Column {
         id: homeColumn
         width: parent.width
-        spacing: Style.space(10)
-      MediaCollection {
-        width: parent.width
-        height: Style.space(220)
-        service: root.service
-        sourceItems: root.service ? root.service.history : []
-        showFilter: false
-        showSort: false
-        emptyMessage: "No recent tracks yet."
-        visible: (root.service ? root.service.history : []).length > 0
-        onActivated: function(item, items) { root.activateMedia(item, items, "") }
-        onOpened: function(item) { root.openItem(item) }
-        onQueued: function(item) { if (root.service) root.service.queueItem(item) }
-        onSaveToggled: function(item) { if (root.service) root.service.toggleSaved(item) }
-        onPlaylistRequested: function(item) {
-          root.contextItem = item
-          playlistPicker.open()
-        }
-        onContextRequested: function(item, x, y, index, items) {
-          root.openMediaContext(item, x, y, items)
-        }
-      }
-      Repeater {
-        model: root.service ? root.service.homeShelves : []
-        MediaCollection {
-          required property var modelData
+        spacing: Style.space(14)
+        Column {
           width: parent.width
-          height: Style.space(240)
-          service: root.service
-          sourceItems: modelData.tracks || []
-          showFilter: false
-          showSort: false
-          emptyMessage: ""
-          onActivated: function(item, items) { root.activateMedia(item, items, "") }
-          onOpened: function(item) { root.openItem(item) }
-          onQueued: function(item) { if (root.service) root.service.queueItem(item) }
-          onSaveToggled: function(item) { if (root.service) root.service.toggleSaved(item) }
-          onPlaylistRequested: function(item) {
-            root.contextItem = item
-            playlistPicker.open()
+          spacing: Style.space(6)
+          visible: (root.service ? root.service.history : []).length > 0
+          Text {
+            width: parent.width
+            text: "Recent"
+            color: root.foreground
+            font.pixelSize: Style.font.subtitle
+            font.bold: true
+            elide: Text.ElideRight
           }
-          onContextRequested: function(item, x, y, index, items) {
-            root.openMediaContext(item, x, y, items)
+          Repeater {
+            model: root.service ? root.service.history : []
+            MediaRow {
+              required property var modelData
+              width: homeColumn.width
+              itemData: modelData
+              foreground: root.foreground
+              accent: root.accent
+              fontFamily: root.fontFamily
+              browseOnActivate: modelData && modelData.kind === "context"
+              saved: root.service ? root.service.isSaved(modelData) : false
+              onActivated: function(item) {
+                root.activateMedia(item, root.service ? root.service.history : [], "")
+              }
+              onOpenRequested: function(item) { root.openItem(item) }
+              onArtistRequested: function(item) { root.openItem(item) }
+              onAlbumRequested: function(item) { root.openItem(item) }
+              onQueueRequested: function(item) {
+                if (root.service) root.service.queueItem(item)
+              }
+              onPlaylistRequested: function(item) {
+                root.contextItem = item
+                playlistPicker.open()
+              }
+              onSaveRequested: function(item) {
+                if (root.service) root.service.toggleSaved(item)
+              }
+              onContextRequested: function(item, sceneX, sceneY) {
+                root.openMediaContext(item, sceneX, sceneY,
+                  root.service ? root.service.history : [])
+              }
+            }
           }
         }
-      }
-      Text {
-        width: parent.width
-        visible: (!root.service || ((root.service.homeShelves || []).length === 0
-          && (root.service.history || []).length === 0))
-        text: root.service && root.service.homeLoading
-          ? "Loading home…"
-          : (root.service && !root.service.fullyConnected
-            ? (root.service.loginProgress || "Connecting")
-            : "Nothing on Home yet. Search for a song to start.")
-        color: Qt.darker(root.foreground, 1.4)
-        horizontalAlignment: Text.AlignHCenter
-      }
+        Repeater {
+          model: root.service ? root.service.homeShelves : []
+          delegate: Column {
+            required property var modelData
+            property var shelf: modelData
+            property var shelfTracks: (modelData && modelData.tracks) || []
+            width: homeColumn.width
+            spacing: Style.space(6)
+            Text {
+              width: parent.width
+              text: (shelf && shelf.title) || "Home"
+              color: root.foreground
+              font.pixelSize: Style.font.subtitle
+              font.bold: true
+              elide: Text.ElideRight
+            }
+            Repeater {
+              model: shelfTracks
+              MediaRow {
+                required property var modelData
+                width: homeColumn.width
+                itemData: modelData
+                foreground: root.foreground
+                accent: root.accent
+                fontFamily: root.fontFamily
+                browseOnActivate: modelData && modelData.kind === "context"
+                saved: root.service ? root.service.isSaved(modelData) : false
+                onActivated: function(item) {
+                  root.activateMedia(item, (shelf && shelf.tracks) || [], "")
+                }
+                onOpenRequested: function(item) { root.openItem(item) }
+                onArtistRequested: function(item) { root.openItem(item) }
+                onAlbumRequested: function(item) { root.openItem(item) }
+                onQueueRequested: function(item) {
+                  if (root.service) root.service.queueItem(item)
+                }
+                onPlaylistRequested: function(item) {
+                  root.contextItem = item
+                  playlistPicker.open()
+                }
+                onSaveRequested: function(item) {
+                  if (root.service) root.service.toggleSaved(item)
+                }
+                onContextRequested: function(item, sceneX, sceneY) {
+                  root.openMediaContext(item, sceneX, sceneY, (shelf && shelf.tracks) || [])
+                }
+              }
+            }
+          }
+        }
+        Text {
+          width: parent.width
+          visible: (!root.service || ((root.service.homeShelves || []).length === 0
+            && (root.service.history || []).length === 0))
+          text: root.service && root.service.homeLoading
+            ? "Loading home…"
+            : (root.service && !root.service.fullyConnected
+              ? (root.service.loginProgress || "Connecting")
+              : "Nothing on Home yet. Search for a song to start.")
+          color: Qt.darker(root.foreground, 1.4)
+          horizontalAlignment: Text.AlignHCenter
+          wrapMode: Text.WordWrap
+        }
       }
     }
   }
@@ -844,6 +912,7 @@ Item {
   Component {
     id: searchPage
     MediaCollection {
+      anchors.fill: parent
       service: root.service
       sourceItems: root.service ? root.service.searchResults : []
       loading: root.service && root.service.searchLoading
@@ -866,6 +935,7 @@ Item {
   Component {
     id: libraryPage
     Column {
+      anchors.fill: parent
       spacing: Style.space(8)
       Row {
         spacing: Style.space(6)
@@ -920,6 +990,7 @@ Item {
   Component {
     id: playlistsPage
     MediaCollection {
+      anchors.fill: parent
       service: root.service
       sourceItems: root.service ? root.service.playlists : []
       filterText: root.playlistFilter
@@ -945,6 +1016,7 @@ Item {
   Component {
     id: detailPage
     Column {
+      anchors.fill: parent
       spacing: Style.space(8)
       Row {
         width: parent.width
@@ -1038,6 +1110,7 @@ Item {
   Component {
     id: queuePage
     MediaCollection {
+      anchors.fill: parent
       service: root.service
       sourceItems: root.service && root.service.backendState
         ? (root.service.backendState.queue || []) : []
@@ -1057,7 +1130,9 @@ Item {
   Component {
     id: setupPage
     Flickable {
+      anchors.fill: parent
       clip: true
+      contentWidth: width
       contentHeight: setupColumn.implicitHeight
       Column {
         id: setupColumn
