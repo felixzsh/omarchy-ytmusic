@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0
 - Publish a native `org.mpris.MediaPlayer2.omarchy_ytmusic` player from the
   backend (jeepney): "YouTube Music" identity, artist/album/artwork/length
   metadata, live position, and play/pause/next/previous/seek from remote

@@ -125,6 +125,27 @@ starts; no Netscape cookie file is generated.
 ./scripts/test.sh
 ```
 
+## Releasing
+
+Releases are cut from tags, not from a branch. Pushing a `v*` tag runs
+`.github/workflows/release.yml`, which asks GitHub for generated release notes
+categorized by `.github/release.yml` (PR labels come from the release-drafter
+autolabeler in `label-pr.yml`), then appends direct conventional commits with
+`.github/scripts/merge-release-notes.mjs` and publishes the release.
+
+Keep the tag and `manifest.json` in step:
+
+1. Change `version` in `manifest.json`, rename `## Unreleased` in
+   `CHANGELOG.md` to the same version, and commit both as
+   `chore: bump version to X.Y.Z`.
+2. Push the commit, then the tag:
+
+   ```bash
+   git push origin main
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+
 Complete removal:
 
 ```bash
