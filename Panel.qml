@@ -39,6 +39,7 @@ Item {
   property bool showHeaderPaste: false
 
   property string draftIdleMinutes: "15"
+  property bool draftKeepAvailable: true
   property bool draftShowMiniPlayer: true
   property string draftShortcutPlayer: "Omarchy Music app"
   property string draftAudioQuality: "320 kbps"
@@ -78,6 +79,7 @@ Item {
   function syncDraftSettings() {
     if (!service) return
     draftIdleMinutes = String(service.idleShutdownMinutes)
+    draftKeepAvailable = service.keepAvailable
     draftShowMiniPlayer = service.showMiniPlayer
     draftShortcutPlayer = service.shortcutPlayer
     draftAudioQuality = service.audioQuality
@@ -89,6 +91,7 @@ Item {
     service.persistSettings({
       idleShutdownMinutes: Math.max(0, Math.min(1440,
         Math.floor(Number(draftIdleMinutes) || 0))),
+      keepAvailable: draftKeepAvailable ? "On" : "Off",
       showMiniPlayer: draftShowMiniPlayer ? "On" : "Off",
       shortcutPlayer: draftShortcutPlayer,
       audioQuality: draftAudioQuality
@@ -1202,6 +1205,23 @@ Item {
             root.persistDraftSettings()
           }
         }
+        Button {
+          text: "Keep player available: " + (root.draftKeepAvailable ? "On" : "Off")
+          foreground: root.foreground
+          onClicked: {
+            root.draftKeepAvailable = !root.draftKeepAvailable
+            root.persistDraftSettings()
+          }
+        }
+        Text {
+          width: parent.width
+          text: root.draftKeepAvailable
+            ? "Resident like MPD: the backend and its MPRIS player stay available to other apps and your phone, even while paused."
+            : "The backend stops after the idle time below, so remote players stop seeing it."
+          color: Qt.darker(root.foreground, 1.45)
+          wrapMode: Text.WordWrap
+          font.pixelSize: Style.font.caption
+        }
         Row {
           spacing: Style.space(8)
           Text {
@@ -1214,6 +1234,7 @@ Item {
             width: Style.space(72)
             foreground: root.foreground
             text: root.draftIdleMinutes
+            enabled: !root.draftKeepAvailable
             onTextEdited: root.draftIdleMinutes = text
             onEditingFinished: root.persistDraftSettings()
           }

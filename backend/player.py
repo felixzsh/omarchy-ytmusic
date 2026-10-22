@@ -15,10 +15,15 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+import session
+
 from catalog import track_item
 
 
 LOGGER = logging.getLogger(__name__)
+
+# How often the playback position is written to the session file while playing.
+SESSION_SAVE_INTERVAL = 5.0
 
 
 class PlayerError(RuntimeError):
@@ -74,7 +79,7 @@ def looks_like_stream_title(text: str) -> bool:
     )
 
 
-def mpv_command_line(binary: str, ipc_path: Path, mpris: str = "") -> list[str]:
+def mpv_command_line(binary: str, ipc_path: Path) -> list[str]:
     command = [
         binary,
         "--no-config",
@@ -97,8 +102,6 @@ def mpv_command_line(binary: str, ipc_path: Path, mpris: str = "") -> list[str]:
         f"--input-ipc-server={ipc_path}",
         "--msg-level=cplayer=info,ao=info,ffmpeg=warn",
     ]
-    if mpris:
-        command.append(f"--script={mpris}")
     return command
 
 
@@ -140,7 +143,7 @@ class Mpv:
             except OSError:
                 pass
         log_path = self.ipc_path.parent / "mpv.log"
-        command = mpv_command_line(mpv, self.ipc_path, _mpris_script())
+        command = mpv_command_line(mpv, self.ipc_path)
         stderr = log_path.open("ab")
         try:
             self.process = subprocess.Popen(
@@ -247,18 +250,6 @@ class Mpv:
             if isinstance(message, dict):
                 events.append(message)
         return events
-
-
-def _mpris_script() -> str:
-    candidates = [
-        "/usr/lib/mpv-mpris/mpris.so",
-        "/usr/lib/mpv/scripts/mpris.so",
-        "/usr/lib64/mpv-mpris/mpris.so",
-    ]
-    for path in candidates:
-        if os.path.isfile(path):
-            return path
-    return ""
 
 
 class StreamResolver:
@@ -529,6 +520,7 @@ class QueuePlayer:
         runtime_dir: Path,
         on_change: Callable[[], None] | None = None,
         catalog_radio: Callable[[str], list[dict]] | None = None,
+        state_path: Path | None = None,
     ):
         self.mpv = Mpv(runtime_dir / "mpv.sock")
         self.resolver = StreamResolver(runtime_dir=runtime_dir)
@@ -565,6 +557,11 @@ class QueuePlayer:
         self._sleep_deadline = 0.0
         self._sleep_after = ""
         self._display_title = ""
+        self._state_path = Path(state_path) if state_path else None
+        self._last_save = 0.0
+        # False while a restored track is queued but no stream has been loaded.
+        # play() resolves the stream at position_ms in that case.
+        self._stream_loaded = False
         self.last_activity = time.time()
 
     @property
@@ -577,6 +574,60 @@ class QueuePlayer:
         item = self.current
         return dict(item) if item else None
 
+    def snapshot_session(self) -> dict:
+        return {
+            "version": session.SESSION_VERSION,
+            "queue": list(self.queue),
+            "index": self.index,
+            "position_ms": self.position_ms,
+            "duration_ms": self.duration_ms,
+            "volume": self.volume,
+            "muted": self.muted,
+            "volume_before_mute": self.volume_before_mute,
+            "shuffle": self.shuffle,
+            "repeat": self.repeat,
+            "updated_at": int(time.time()),
+        }
+
+    def save_session(self, force: bool = True) -> bool:
+        """Persist the queue and playback position. Throttled unless forced."""
+        if not self._state_path:
+            return False
+        now = time.time()
+        if not force and now - self._last_save < 2.0:
+            return False
+        self._last_save = now
+        return session.save_session(self._state_path, self.snapshot_session())
+
+    def restore_session(self, state: dict | None) -> bool:
+        """Restore a saved queue as paused; no stream is resolved until play."""
+        clean = session.sanitize(state)
+        if not clean:
+            return False
+        self.queue = clean["queue"]
+        self.index = clean["index"]
+        self.volume = clean["volume"]
+        self.muted = clean["muted"]
+        self.volume_before_mute = clean["volume_before_mute"]
+        self.shuffle = clean["shuffle"]
+        self.repeat = clean["repeat"]
+        self.duration_ms = clean["duration_ms"]
+        self.position_ms = clean["position_ms"]
+        self.playing = False
+        self._stream_loaded = False
+        self._stream_started = False
+        self._stream_position_seen = False
+        self._resume_after_load = False
+        self._play_history = [self.index]
+        self._history_position = 0
+        self._shuffle_pending = []
+        self.note_activity()
+        return True
+
+    def _changed(self) -> None:
+        self.save_session(force=False)
+        self.on_change()
+
     def ensure_started(self) -> None:
         if not self.mpv.running:
             self.mpv.start()
@@ -587,6 +638,7 @@ class QueuePlayer:
             self.mpv.command(["set_property", "volume", self.volume])
 
     def shutdown(self) -> None:
+        self.save_session()
         self._stop.set()
         self.mpv.stop()
         self.resolver.shutdown()
@@ -606,6 +658,7 @@ class QueuePlayer:
         self.note_activity()
         self.ensure_started()
         self._play_current(start=play)
+        self.save_session()
 
     def add_to_queue(self, item: dict) -> None:
         track = item if item.get("type") == "track" else track_item(item)
@@ -622,17 +675,22 @@ class QueuePlayer:
             nxt = self._upcoming_video_id()
             if nxt:
                 self.resolver.prefetch(nxt)
-        self.on_change()
+        self._changed()
 
     def play(self) -> None:
         if not self.current:
             raise PlayerError("Nothing is queued")
+        if not self._stream_loaded or not self.mpv.running:
+            # A restored session has a track and a position but no stream yet.
+            self.ensure_started()
+            self._play_current(start=True, start_ms=self.position_ms)
+            return
         self.ensure_started()
         self.mpv.command(["set_property", "pause", False])
         self._resume_after_load = True
         self.playing = self._stream_started and self._stream_position_seen
         self.note_activity()
-        self.on_change()
+        self._changed()
 
     def pause(self) -> None:
         if not self.mpv.running:
@@ -641,7 +699,7 @@ class QueuePlayer:
         self._resume_after_load = False
         self.playing = False
         self.note_activity()
-        self.on_change()
+        self._changed()
 
     def toggle(self) -> None:
         if self.playing:
@@ -658,20 +716,21 @@ class QueuePlayer:
         self._resume_after_load = False
         self._stream_started = False
         self._stream_position_seen = False
+        self._stream_loaded = False
         self.playing = False
         self.position_ms = 0
         self.note_activity()
-        self.on_change()
+        self._changed()
 
     def next(self) -> None:
         self.note_activity()
         if self._advance():
             if not self._play_next_with_recovery():
                 self.playing = False
-                self.on_change()
+                self._changed()
         else:
             self.playing = False
-            self.on_change()
+            self._changed()
 
     def previous(self) -> None:
         self.note_activity()
@@ -706,24 +765,39 @@ class QueuePlayer:
             self.seek(0)
 
     def seek(self, position_ms: int) -> None:
-        if not self.mpv.running:
-            return
         seconds = max(0, int(position_ms or 0)) / 1000.0
+        target_ms = int(seconds * 1000)
+        duration = self.duration_ms
+        if not duration and self.current:
+            try:
+                duration = int(self.current.get("durationMs") or 0)
+            except (TypeError, ValueError):
+                duration = 0
+        if duration:
+            target_ms = min(target_ms, duration)
+        if not self.mpv.running:
+            # Seek before play (MPRIS on a restored session): only move the
+            # saved position; play() resolves the stream there.
+            self.position_ms = target_ms
+            self.note_activity()
+            self._changed()
+            return
         item = self.current
         resume = self.playing
         if item:
-            url = self.resolver.resolve(str(item.get("videoId") or ""), int(seconds * 1000))
-            self._stream_start_ms = int(seconds * 1000)
+            url = self.resolver.resolve(str(item.get("videoId") or ""), target_ms)
+            self._stream_start_ms = target_ms
             self._stream_started = False
             self._stream_position_seen = False
             self._stream_position_mode = None
             self._resume_after_load = resume
+            self._stream_loaded = True
             self.mpv.command(loadfile_command(url, item))
             self.mpv.command(["set_property", "pause", not resume])
             self.playing = False
-        self.position_ms = int(seconds * 1000)
+        self.position_ms = target_ms
         self.note_activity()
-        self.on_change()
+        self._changed()
 
     def set_volume(self, volume: int) -> None:
         volume = max(0, min(100, int(volume)))
@@ -734,7 +808,7 @@ class QueuePlayer:
         if self.mpv.running:
             self.mpv.command(["set_property", "volume", volume])
         self.note_activity()
-        self.on_change()
+        self._changed()
 
     def set_shuffle(self, value: bool) -> None:
         enabled = bool(value)
@@ -747,14 +821,14 @@ class QueuePlayer:
             if not enabled:
                 self._shuffle_pending = []
         self.note_activity()
-        self.on_change()
+        self._changed()
 
     def set_repeat(self, mode: str) -> None:
         if mode not in ("off", "context", "track"):
             mode = "off"
         self.repeat = mode
         self.note_activity()
-        self.on_change()
+        self._changed()
 
     def cycle_repeat(self) -> str:
         nxt = {"off": "context", "context": "track", "track": "off"}[self.repeat]
@@ -772,7 +846,7 @@ class QueuePlayer:
             self._sleep_deadline = 0.0
             self._sleep_after = ""
         self.note_activity()
-        self.on_change()
+        self._changed()
 
     def sleep_active(self) -> bool:
         return self._sleep_deadline > 0 or bool(self._sleep_after)
@@ -837,13 +911,15 @@ class QueuePlayer:
         except Exception:
             pass
 
-    def _play_current(self, start: bool = True, expose_error: bool = True) -> None:
+    def _play_current(self, start: bool = True, expose_error: bool = True,
+                      start_ms: int = 0) -> None:
         item = self.current
         if not item:
             raise PlayerError("Nothing is queued")
         video_id = str(item.get("videoId") or "")
+        start_ms = max(0, int(start_ms or 0))
         self.error = ""
-        self._stream_start_ms = 0
+        self._stream_start_ms = start_ms
         self._stream_started = False
         self._stream_position_seen = False
         self._stream_position_mode = None
@@ -851,21 +927,23 @@ class QueuePlayer:
         self.ensure_started()
         self._publish_title(item)
         try:
-            url = self.resolver.resolve(video_id)
+            url = self.resolver.resolve(video_id, start_ms)
             self._publish_title(item)
             self.mpv.command(loadfile_command(url, item))
             self.mpv.command(["set_property", "pause", not start])
             # Wait for mpv's playback-restart event before advancing the UI
             # clock; loadfile may spend time buffering the first segment.
+            self._stream_loaded = True
             self.playing = False
-            self.position_ms = 0
+            self.position_ms = start_ms
             self.duration_ms = int(item.get("durationMs") or 0)
         except Exception as exc:
+            self._stream_loaded = False
             if expose_error:
                 self.error = str(exc)
             self.playing = False
             if expose_error:
-                self.on_change()
+                self._changed()
             raise PlayerError(str(exc)) from exc
         nxt = self._upcoming_video_id()
         if nxt:
@@ -876,7 +954,7 @@ class QueuePlayer:
         ):
             self._fill_radio(video_id)
         self._generation += 1
-        self.on_change()
+        self._changed()
 
     def _fill_radio(self, video_id: str) -> None:
         def worker() -> None:
@@ -907,7 +985,7 @@ class QueuePlayer:
             if nxt:
                 self.resolver.prefetch(nxt)
             if added:
-                self.on_change()
+                self._changed()
         threading.Thread(target=worker, daemon=True).start()
 
     def _play_current_with_retries(self, attempts: int = 3) -> PlayerError | None:
@@ -1126,4 +1204,8 @@ class QueuePlayer:
                     self.playing = False
                     changed = True
             if changed:
-                self.on_change()
+                self._changed()
+            elif self.queue and time.time() - self._last_save >= SESSION_SAVE_INTERVAL:
+                # Keep the saved position close to the real one while playing
+                # without writing the session file on every time-pos tick.
+                self.save_session(force=True)

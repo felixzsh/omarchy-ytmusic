@@ -46,7 +46,7 @@ class PlayerTests(unittest.TestCase):
         self.assertEqual(StreamResolver._normalize_quality(320), 320)
 
     def test_mpv_command_stays_headless(self):
-        command = mpv_command_line("/usr/bin/mpv", Path("/tmp/mpv.sock"), "/lib/mpris.so")
+        command = mpv_command_line("/usr/bin/mpv", Path("/tmp/mpv.sock"))
         joined = " ".join(command)
         self.assertIn("--vo=null", command)
         self.assertIn("--no-config", command)
@@ -54,13 +54,46 @@ class PlayerTests(unittest.TestCase):
         self.assertIn("--keep-open=no", command)
         self.assertIn("--clipboard-backends-clr", command)
         self.assertIn("--audio-client-name=omarchy-ytmusic", command)
-        self.assertIn("--script=/lib/mpris.so", command)
+        # MPRIS is owned by the backend, so mpv must not publish a second player.
+        self.assertFalse(any(arg.startswith("--script=") for arg in command))
         self.assertNotIn("--really-quiet", command)
         self.assertIn("pipewire", joined)
-        # Spaces in the Pulse/MPRIS client name make mpv-mpris hang on D-Bus.
         self.assertTrue(all(" " not in arg.split("=", 1)[-1]
                             for arg in command if arg.startswith("--audio-client-name=")))
 
+    def test_restored_session_plays_from_the_saved_position(self):
+        player = QueuePlayer(Path("/tmp/omarchy-ytmusic-test"))
+        player.ensure_started = lambda: None
+        restored = player.restore_session({
+            "queue": [{"videoId": "a", "name": "A"}, {"videoId": "b", "name": "B"}],
+            "index": 1,
+            "position_ms": 42000,
+            "duration_ms": 200000,
+            "volume": 65,
+            "shuffle": True,
+            "repeat": "context",
+        })
+        self.assertTrue(restored)
+        self.assertEqual(player.current["videoId"], "b")
+        self.assertEqual(player.position_ms, 42000)
+        self.assertEqual(player.volume, 65)
+        self.assertTrue(player.shuffle)
+        self.assertEqual(player.repeat, "context")
+        self.assertFalse(player.playing)
+        calls = []
+        player._play_current = lambda **kwargs: calls.append(kwargs)
+        player.play()
+        self.assertEqual(calls, [{"start": True, "start_ms": 42000}])
+
+    def test_seek_before_play_only_moves_the_saved_position(self):
+        player = QueuePlayer(Path("/tmp/omarchy-ytmusic-test"))
+        player.queue = [{"videoId": "a", "durationMs": 200000}]
+        player.index = 0
+        player.mpv = type("IdleMpv", (), {"running": False})()
+        player.seek(90000)
+        self.assertEqual(player.position_ms, 90000)
+        player.seek(999000)
+        self.assertEqual(player.position_ms, 200000)
     def test_media_title_prefers_track_name(self):
         self.assertEqual(media_title({"name": "Splashing Around"}), "Splashing Around")
         self.assertEqual(media_title({}), "YouTube Music")

@@ -22,6 +22,7 @@ Item {
 
   readonly property var defaultSettingValues: ({
     idleShutdownMinutes: 15,
+    keepAvailable: "On",
     showMiniPlayer: "On",
     shortcutPlayer: "Omarchy Music app",
     audioQuality: "320 kbps",
@@ -32,6 +33,7 @@ Item {
 
   readonly property int idleShutdownMinutes: Math.max(0, Math.min(1440,
     Math.floor(Number(settings.idleShutdownMinutes) || 0)))
+  readonly property bool keepAvailable: String(settings.keepAvailable || "On") !== "Off"
   readonly property bool showMiniPlayer: String(settings.showMiniPlayer || "On") !== "Off"
   readonly property string shortcutPlayer: Api.normalizedShortcutPlayer(
     settings.shortcutPlayer)
@@ -183,6 +185,7 @@ Item {
     daemonManager.idleMinutes = idleShutdownMinutes
     if (backendClient.ready) {
       backendClient.sendCommand("set_idle_minutes", { minutes: idleShutdownMinutes })
+      backendClient.sendCommand("set_keep_available", { enabled: keepAvailable })
       backendClient.sendCommand("set_quality", { kbps: bitrateKbps })
     }
   }
@@ -802,6 +805,7 @@ Item {
             || root.lastError === "Installing playback on this computer…")
           root.succeed("")
         sendCommand("set_idle_minutes", { minutes: root.idleShutdownMinutes })
+        sendCommand("set_keep_available", { enabled: root.keepAvailable })
         sendCommand("set_quality", { kbps: root.bitrateKbps })
         if (root.uiVisible) root.loadHome(true)
       }

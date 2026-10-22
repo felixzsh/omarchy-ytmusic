@@ -28,6 +28,11 @@ for you, ready when you want them.
   playlists, albums, and artists, then build a queue.
 - **Lyrics with Omasing.** Open the current song in Omasing and let it find
   the right lyrics and playback position automatically.
+- **Native where it matters.** The backend publishes its own MPRIS player, so
+  playerctl, KDE Connect, Flux, and other MPRIS clients see "YouTube Music"
+  with artist, album, artwork, position, and working transport controls.
+- **Remembers what you were playing.** Queue, track, position, volume, shuffle,
+  and repeat are restored on start, paused where you left off.
 
 ## Familiar from the first click
 
@@ -69,8 +74,9 @@ The first time you open the player, the plugin installs a user venv with
 [`ytmusicapi`](https://github.com/sigma67/ytmusicapi), a local
 [`youtubei.js`](https://github.com/LuanRT/YouTube.js) resolver, and a
 socket-activated systemd user socket. The socket is enabled at login; it starts
-the backend on the first connection and the backend stops again after the
-configured idle period. No `sudo` or `pkexec` is required.
+the backend on the first connection. The backend stays resident by default so
+remote MPRIS clients keep seeing it, and can still be configured to stop after
+an idle period. No `sudo` or `pkexec` is required.
 
 If the player reports that YouTube Music is not ready, open it once: the plugin
 retries the install and restarts the backend on its own. To control the units by

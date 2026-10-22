@@ -16,6 +16,8 @@ python3 "$source_root/tests/test_catalog.py"
 python3 "$source_root/tests/test_auth.py"
 python3 "$source_root/tests/test_player.py"
 python3 "$source_root/tests/test_protocol.py"
+python3 "$source_root/tests/test_session.py"
+python3 "$source_root/tests/test_mpris.py"
 python3 "$source_root/tests/test_server.py"
 
 command -v node >/dev/null 2>&1 || {

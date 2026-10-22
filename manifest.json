@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "felixzsh.ytmusic",
   "name": "Omarchy YouTube Music",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "felixzsh",
   "license": "MIT",
-  "description": "YouTube Music in Quickshell—not Chromium. Search, library, playlists, and a mini player, with local mpv playback.",
+  "description": "YouTube Music in Quickshell\u2014not Chromium. Search, library, playlists, and a mini player, with local mpv playback.",
   "kinds": [
     "service",
     "bar-widget",
@@ -34,7 +34,8 @@
       "idleShutdownMinutes": 15,
       "showMiniPlayer": "On",
       "shortcutPlayer": "Omarchy Music app",
-      "audioQuality": "320 kbps"
+      "audioQuality": "320 kbps",
+      "keepAvailable": "On"
     },
     "schema": [
       {
@@ -45,7 +46,18 @@
         "max": 1440,
         "step": 5,
         "defaultValue": 15,
-        "description": "Minutes. Use 0 to keep the backend running after you pause."
+        "description": "Minutes of inactivity before local playback stops. Only used when 'Keep player available' is Off."
+      },
+      {
+        "key": "keepAvailable",
+        "type": "enum",
+        "label": "Keep player available (MPRIS)",
+        "options": [
+          "On",
+          "Off"
+        ],
+        "defaultValue": "On",
+        "description": "On keeps the backend resident so MPRIS clients (phone, KDE Connect, playerctl) always see the player, like MPD. Off stops it after the idle time."
       },
       {
         "key": "showMiniPlayer",

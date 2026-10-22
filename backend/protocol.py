@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 PROTOCOL_VERSION = 1
-BACKEND_VERSION = "1.1.1"
+BACKEND_VERSION = "1.2.0"
 
 ERROR_UNSUPPORTED_VERSION = "unsupported_version"
 ERROR_UNKNOWN_COMMAND = "unknown_command"

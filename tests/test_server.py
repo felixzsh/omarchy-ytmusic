@@ -44,6 +44,15 @@ class IdleWatchTests(unittest.TestCase):
             idle_minutes=0, playing=False, client_count=0,
             last_activity=now - 15 * 60, now=now))
 
+    def test_keep_available_keeps_the_backend_resident(self):
+        now = 1_000.0
+        self.assertFalse(idle_should_exit(
+            idle_minutes=15, playing=False, client_count=0,
+            last_activity=now - 15 * 60, now=now, keep_available=True))
+        self.assertTrue(idle_should_exit(
+            idle_minutes=15, playing=False, client_count=0,
+            last_activity=now - 15 * 60, now=now, keep_available=False))
+
 
 class ActivatedSocketTests(unittest.TestCase):
     def test_returns_none_without_systemd_environment(self):
@@ -66,7 +75,7 @@ class ActivatedSocketTests(unittest.TestCase):
 
 class ArtworkProxyTests(unittest.TestCase):
     def test_localizes_remote_artwork_urls(self):
-        backend = Backend()
+        backend = Backend(session_path=None)
         backend.artwork_base_url = "http://127.0.0.1:12345/artwork"
         original = "https://i.ytimg.com/vi/test/hqdefault.jpg"
 
@@ -94,7 +103,7 @@ class ArtworkProxyTests(unittest.TestCase):
             def read(self, _limit):
                 return b"image-data"
 
-        backend = Backend()
+        backend = Backend(session_path=None)
         with patch("server.preferred_artwork_port", return_value=0):
             backend._start_artwork_proxy()
         original = "https://i.ytimg.com/vi/test/hqdefault.jpg"
@@ -125,12 +134,12 @@ class ArtworkProxyTests(unittest.TestCase):
         probe.close()
 
         with patch("server.preferred_artwork_port", return_value=port):
-            first = Backend()
+            first = Backend(session_path=None)
             first._start_artwork_proxy()
             base = first.artwork_base_url
             first._stop_artwork_proxy()
 
-            second = Backend()
+            second = Backend(session_path=None)
             second._start_artwork_proxy()
             try:
                 self.assertIn(f":{port}/artwork", base)
@@ -141,7 +150,7 @@ class ArtworkProxyTests(unittest.TestCase):
 
 class RequireCatalogTests(unittest.TestCase):
     def test_require_catalog_retries_init_on_demand(self):
-        backend = Backend()
+        backend = Backend(session_path=None)
         backend.catalog = None
         sentinel = object()
         calls = []
@@ -155,7 +164,7 @@ class RequireCatalogTests(unittest.TestCase):
         self.assertEqual(calls, [1])
 
     def test_require_catalog_raises_when_retry_fails(self):
-        backend = Backend()
+        backend = Backend(session_path=None)
         backend.catalog = None
         backend.start_catalog = lambda: None
         with self.assertRaises(CatalogError):
@@ -174,7 +183,7 @@ class LoadMixTests(unittest.TestCase):
             pass
 
     def backend_with(self, catalog):
-        backend = Backend()
+        backend = Backend(session_path=None)
         backend.catalog = catalog
         backend.player = self.FakePlayer()
         backend.state = lambda: {}
@@ -246,7 +255,7 @@ class DetailCommandTests(unittest.TestCase):
             return {"id": artist_id, "tracks": [{"videoId": "abcdefghijk"}]}
 
     def handle(self, message):
-        backend = Backend()
+        backend = Backend(session_path=None)
         backend.catalog = self.FakeCatalog()
         return backend.handle(message)
 

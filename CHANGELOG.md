@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- Publish a native `org.mpris.MediaPlayer2.omarchy_ytmusic` player from the
+  backend (jeepney): "YouTube Music" identity, artist/album/artwork/length
+  metadata, live position, and play/pause/next/previous/seek from remote
+  clients. `mpv-mpris` is no longer loaded, so there is one player, not two.
+- Remember the last session: queue, track, position, volume, shuffle, and
+  repeat are saved to `~/.local/state/omarchy-ytmusic/session.json` and restored
+  paused on start, so the bar stops saying "Nothing playing".
+- Keep the backend resident by default ("Keep player available", MPRIS), like
+  MPD; idle shutdown remains available in settings.
 
 - Start a Mix from a playlist, album, or artist, from its detail page or the
   right-click menu, alongside the existing per-song radio.

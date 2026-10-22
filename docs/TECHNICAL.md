@@ -22,9 +22,10 @@ protocol directives, and the helper extracts media clusters from UMP responses.
 It exposes those clusters as one local chunked HTTP response; it does not make
 direct `googlevideo` range requests. mpv is
 launched headless (`--vo=null`, no Wayland/X display) and uses the D-Bus-safe
-client name `omarchy-ytmusic` so MPRIS cannot stall the player. Each track sets
-`force-media-title` so MPRIS clients show the song name, not the stream URL.
-The playback path does not invoke or require `yt-dlp`.
+client name `omarchy-ytmusic`. Each track still sets `force-media-title` for log
+and window titles, but `mpv-mpris` is deliberately not loaded: the backend owns
+MPRIS itself (see below). The playback path does not invoke or require
+`yt-dlp`.
 The plugin
 talks to a private Unix socket at `$XDG_RUNTIME_DIR/omarchy-ytmusic/backend.sock`
 using versioned newline-delimited JSON.
@@ -42,12 +43,39 @@ queue transitions, instead of stopping playback until the backend restarts.
 The backend is a Python process activated on demand by a systemd user socket
 (`omarchy-ytmusic.socket`). The Node resolver is a child of that backend, so a
 new process is not created for every track. Connecting to the socket starts the
-backend; it exits after the configured idle period and the socket starts it
+backend. It is resident by default (the **Keep player available** setting) so
+MPRIS clients and phones can always find it, like MPD; enabling idle shutdown
+lets it exit after the configured idle period, after which the socket starts it
 again on the next connection. While a surface is open, the plugin watches that
 state: if the runtime is missing it re-runs `scripts/setup.sh`, and if a
 connected backend never reports `ready` it runs `scripts/playback-runtime.sh
 restart` to replace the wedged process. Setup and restart attempts are bounded
 so a genuinely broken install reports an error instead of looping.
+
+## MPRIS and session state
+
+`backend/mpris.py` implements `org.mpris.MediaPlayer2.omarchy_ytmusic` over the
+session bus (jeepney, one daemon thread in the backend). Owning the interface
+in the backend instead of mpv means:
+
+- `Identity` is "YouTube Music" and the player exists even when no stream is
+  loaded, so remote clients do not lose it between tracks or after a pause.
+- Metadata carries `xesam:title`, `xesam:artist`, `xesam:album`,
+  `mpris:length`, and `mpris:artUrl` (the loopback artwork proxy); mpv streams
+  carry no tags, so `mpv-mpris` could only ever expose a title.
+- `PlaybackStatus`, `Position`, `Volume`, `Shuffle`, and `LoopStatus` follow
+  the backend state, and `Play`/`Pause`/`PlayPause`/`Next`/`Previous`/`Seek`/
+  `SetPosition` drive the same queue as the panel.
+- `Seek`/`SetPosition` re-resolve the stream with `start_ms`, because the local
+  SABR response is not seekable. Seeking on a paused, restored session only
+  moves the saved position; the stream starts there on the next play.
+
+`backend/session.py` persists queue, index, position, volume, shuffle, and
+repeat to `$XDG_STATE_HOME/omarchy-ytmusic/session.json` (atomic writes, mode
+`600`). The player writes it on discrete changes, every five seconds while
+playing, and on shutdown. On start the backend restores it without resolving a
+stream or starting mpv, so the bar and MPRIS show the last track as paused
+instead of "Nothing playing".
 
 Omarchy hot-reloads plugins on any write inside their directory, so the venv
 and installed backend live outside the plugin tree:

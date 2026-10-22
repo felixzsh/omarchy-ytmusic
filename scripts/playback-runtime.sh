@@ -19,7 +19,7 @@ sync_backend() {
   [[ -n $source_root && -f $source_root/backend/server.py && -d $lib_dir ]] || return 1
   local updated=1
   local name
-  for name in server.py protocol.py auth.py catalog.py player.py; do
+  for name in server.py protocol.py auth.py catalog.py player.py session.py mpris.py; do
     if [[ ! -f $lib_dir/$name ]] \
         || ! cmp -s -- "$source_root/backend/$name" "$lib_dir/$name"; then
       install -m 644 -- "$source_root/backend/$name" "$lib_dir/$name"

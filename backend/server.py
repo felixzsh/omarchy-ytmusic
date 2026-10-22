@@ -24,7 +24,9 @@ if str(HERE) not in sys.path:
 import auth
 import catalog
 import protocol
+import session
 from catalog import Catalog, CatalogError
+from mpris import MprisPlayer
 from player import PlayerError, QueuePlayer
 from protocol import (
     BACKEND_VERSION,
@@ -62,6 +64,9 @@ def socket_path() -> Path:
 # backend restarts so the shell does not have to reload every artwork URL.
 DEFAULT_ARTWORK_PORT = 47654
 
+# Sentinel so tests can disable the on-disk session with session_path=None.
+_AUTO_SESSION = object()
+
 
 def preferred_artwork_port() -> int:
     raw = str(os.environ.get("OMARCHY_YTMUSIC_ARTWORK_PORT", "")).strip()
@@ -89,20 +94,26 @@ def activated_socket() -> socket.socket | None:
 
 
 def idle_should_exit(*, idle_minutes: int, playing: bool, client_count: int,
-                     last_activity: float, now: float) -> bool:
-    if idle_minutes <= 0 or playing or client_count > 0:
+                     last_activity: float, now: float,
+                     keep_available: bool = False) -> bool:
+    if keep_available or idle_minutes <= 0 or playing or client_count > 0:
         return False
     return (now - last_activity) >= idle_minutes * 60
 
 
 class Backend:
-    def __init__(self, auth_path: Path | None = None):
+    def __init__(self, auth_path: Path | None = None,
+                 session_path: Path | None | object = _AUTO_SESSION):
         self.auth_path = auth.default_auth_path() if auth_path is None else auth_path
         self.catalog: Catalog | None = None
         self.signed_in = False
         self.account_name = ""
         self.lifecycle = "starting"
         self.error = ""
+        # Resident by default, like MPD: remote clients must find the player
+        # (and its MPRIS name) even when nothing is playing. Turning
+        # keep_available off restores the idle-shutdown behaviour.
+        self.keep_available = True
         self.idle_minutes = 15
         self.quality_kbps = 320
         self.generation = 0
@@ -115,10 +126,31 @@ class Backend:
         self._clients_lock = threading.Lock()
         self._catalog_lock = threading.Lock()
         self._stop = threading.Event()
+        self.session_path = (
+            session.default_state_path() if session_path is _AUTO_SESSION
+            else (Path(session_path) if session_path else None))
         self.player = QueuePlayer(
             runtime_dir(),
             on_change=self._on_player_change,
             catalog_radio=self._radio_tracks,
+            state_path=self.session_path,
+        )
+        if self.session_path:
+            self.player.restore_session(session.load_session(self.session_path))
+        self.mpris = MprisPlayer(
+            state_provider=self.state,
+            controls={
+                "play": self.player.play,
+                "pause": self.player.pause,
+                "play_pause": self.player.toggle,
+                "stop": self.player.stop,
+                "next": self.player.next,
+                "previous": self.player.previous,
+                "seek": self.player.seek,
+                "set_volume": self.player.set_volume,
+                "set_loop": self.player.set_repeat,
+                "set_shuffle": self.player.set_shuffle,
+            },
         )
         self._last_broadcast = 0.0
 
@@ -180,6 +212,7 @@ class Backend:
             "sleep_active": self.player.sleep_active(),
             "sleep_remaining": self.player.sleep_remaining_seconds(),
             "idle_minutes": self.idle_minutes,
+            "keep_available": self.keep_available,
             "quality_kbps": self.quality_kbps,
             "generation": self.generation,
             "error": self.error or self.player.error,
@@ -301,7 +334,8 @@ class Backend:
 
     def broadcast(self) -> None:
         self.generation += 1
-        payload = dumps(event("state_changed", self.state())) + "\n"
+        state = self.state()
+        payload = dumps(event("state_changed", state)) + "\n"
         data = payload.encode("utf-8")
         with self._clients_lock:
             living = []
@@ -316,6 +350,7 @@ class Backend:
                         pass
             self._clients[:] = living
         self._last_broadcast = time.time()
+        self.mpris.update(state)
 
     def _on_player_change(self) -> None:
         now = time.time()
@@ -379,6 +414,9 @@ class Backend:
             return self.logout()
         if command == "set_idle_minutes":
             self.idle_minutes = max(0, min(1440, int(message.get("minutes") or 0)))
+            return self.state()
+        if command == "set_keep_available":
+            self.keep_available = bool(message.get("enabled", True))
             return self.state()
         if command == "set_quality":
             self.quality_kbps = 96 if int(message.get("kbps") or 320) <= 96 else (
@@ -638,6 +676,8 @@ class Backend:
             server.close()
             raise
         print(f"omarchy-ytmusic-backend listening on {path}", file=sys.stderr)
+        self.mpris.start()
+        self.mpris.update()
         idle_thread = threading.Thread(target=self._idle_watch, daemon=True)
         idle_thread.start()
         position_thread = threading.Thread(target=self._position_watch, daemon=True)
@@ -656,6 +696,7 @@ class Backend:
                 thread.start()
         finally:
             self._stop.set()
+            self.mpris.stop()
             self.player.shutdown()
             self._stop_artwork_proxy()
             try:
@@ -726,6 +767,7 @@ class Backend:
                 client_count=clients,
                 last_activity=self.player.last_activity,
                 now=time.time(),
+                keep_available=self.keep_available,
             ):
                 print("omarchy-ytmusic-backend idle shutdown", file=sys.stderr)
                 self._stop.set()
