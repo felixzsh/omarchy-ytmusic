@@ -50,11 +50,6 @@ TestCase {
     compare(Api.millisecondsToClock(3723000), "1:02:03")
   }
 
-  function test_lyricsSong_requiresIdTitleArtist() {
-    verify(Api.lyricsSong("", "Song", "Artist", "", 10, "", 0) === null)
-    verify(Api.lyricsSong("abc", "Song", "Artist", "Album", 10, "", 3) !== null)
-  }
-
   function test_isPlaybackState_rejectsCatalogPayloads() {
     verify(Api.isPlaybackState({ protocol_version: 1, lifecycle: "ready" }))
     verify(!Api.isPlaybackState({ home: [], signed_in: true }))

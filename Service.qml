@@ -95,46 +95,6 @@ Item {
   readonly property bool currentTrackSaveAvailable: accountConnected && currentTrackId !== ""
   property bool currentTrackSaveBusy: false
   property bool currentTrackSaveChecking: false
-  readonly property var currentLyricsSong: Api.lyricsSong(currentTrackId,
-    title, artist, album, lengthSeconds, artUrl, positionSeconds)
-  readonly property bool lyricsAvailable: currentLyricsSong !== null
-  readonly property string lyricsPluginId: "stappmus.lyrics"
-  readonly property string lyricsPluginUrl: "https://github.com/stappmus/Omasing.git"
-  readonly property string lyricsPluginAvailability: {
-    var plugins = pluginRegistry && pluginRegistry.installedPlugins
-      ? pluginRegistry.installedPlugins : ({})
-    var installed = !!plugins[lyricsPluginId]
-    var enabled = installed && pluginRegistry
-      && typeof pluginRegistry.inBar === "function"
-      && pluginRegistry.inBar(lyricsPluginId)
-    return Api.optionalPluginState(installed, enabled)
-  }
-  property bool lyricsPluginBusy: false
-  property string lyricsPluginOperation: ""
-  // A song is private: /proc/<pid>/cmdline is readable by every local account,
-  // so track metadata never travels as a process argument. The handoff goes
-  // over the shell's own IPC socket (shell.qml, bin/omarchy-shell), which the
-  // shell answers in process. A target the socket does not serve is opened
-  // bare instead: argv is never a fallback for metadata.
-  readonly property string shellIpcSocketPath: {
-    var runtimeDir = Quickshell.env("XDG_RUNTIME_DIR")
-    var omarchyPath = Quickshell.env("OMARCHY_PATH")
-    if (!runtimeDir || !omarchyPath) return ""
-    var id = ""
-    try {
-      id = Qt.md5(omarchyPath + "/shell\n" + (Quickshell.env("WAYLAND_DISPLAY") || "")).slice(0, 16)
-    } catch (error) {
-      return ""
-    }
-    return id ? runtimeDir + "/omarchy-shell-" + id + ".sock" : ""
-  }
-  property bool lyricsIpcBusy: false
-  property bool lyricsIpcUnavailable: false
-  property string lyricsIpcRequest: ""
-  property string lyricsPluginError: ""
-  property string lyricsPluginRequestSurface: ""
-  property var pendingLyricsSong: null
-  property int lyricsPluginLaunchAttempts: 0
 
   property real interpolatedPosition: 0
   property double positionStamp: 0
@@ -186,8 +146,6 @@ Item {
   property bool sleepActive: backendState && backendState.sleep_active === true
 
   signal operationFailed(string reason)
-  signal lyricsPluginPromptRequested(string surface, string availability)
-  signal lyricsPluginOpened(string surface)
 
   function loginProgressText() {
     if (daemonManager.setupBusy) return "Installing playback"
@@ -732,119 +690,6 @@ Item {
     if (typeof done === "function") done(null)
   }
 
-  function requestLyrics(surface) {
-    if (!currentLyricsSong) return "unavailable"
-    lyricsPluginRequestSurface = String(surface || "")
-    pendingLyricsSong = currentLyricsSong
-    lyricsPluginError = ""
-    lyricsPluginLaunchAttempts = 0
-    if (lyricsPluginAvailability === "ready") {
-      launchLyricsPlugin()
-      return "opening"
-    }
-    lyricsPluginPromptRequested(lyricsPluginRequestSurface, lyricsPluginAvailability)
-    return lyricsPluginAvailability
-  }
-
-  function confirmLyricsPlugin(surface) {
-    if (lyricsPluginBusy) return false
-    if (surface) lyricsPluginRequestSurface = String(surface)
-    if (!pendingLyricsSong) pendingLyricsSong = currentLyricsSong
-    if (!pendingLyricsSong) return false
-    lyricsPluginError = ""
-    if (lyricsPluginAvailability === "ready") {
-      lyricsPluginLaunchAttempts = 0
-      launchLyricsPlugin()
-      return true
-    }
-    var setup = Api.optionalPluginSetupCommand(lyricsPluginAvailability,
-      lyricsPluginId, lyricsPluginUrl)
-    if (!setup.length) {
-      lyricsPluginError = "Omasing could not be prepared for installation."
-      return false
-    }
-    lyricsPluginOperation = lyricsPluginAvailability
-    lyricsPluginBusy = true
-    lyricsPluginSetupProcess.command = setup
-    lyricsPluginSetupProcess.running = true
-    return true
-  }
-
-  function cancelLyricsPlugin(surface) {
-    if (lyricsPluginBusy) return
-    if (surface && String(surface) !== lyricsPluginRequestSurface) return
-    lyricsPluginRequestSurface = ""
-    pendingLyricsSong = null
-    lyricsPluginError = ""
-    lyricsIpcBusy = false
-    lyricsIpcLoader.active = false
-    lyricsIpcTimeout.stop()
-  }
-
-  function launchLyricsPlugin() {
-    if (!pendingLyricsSong || lyricsIpcBusy || lyricsPluginLaunchProcess.running) return
-    lyricsPluginLaunchAttempts++
-    if (!lyricsIpcUnavailable && shellIpcSocketPath !== "" && sendLyricsOverShellIpc())
-      return
-    openLyricsPanelBare()
-  }
-
-  // The request is [target, method, arguments] joined by unit separators and
-  // ended by a record separator, exactly what bin/omarchy-shell sends.
-  function sendLyricsOverShellIpc() {
-    if (!pendingLyricsSong || shellIpcSocketPath === "") return false
-    lyricsIpcRequest = [lyricsPluginId, "lyrics",
-      JSON.stringify(pendingLyricsSong)].join("\u001f") + "\u001e"
-    lyricsIpcBusy = true
-    // A Quickshell Socket is single-use: a fresh one per request.
-    lyricsIpcLoader.active = true
-    lyricsIpcTimeout.restart()
-    return true
-  }
-
-  function finishLyricsIpc(reply) {
-    if (!lyricsIpcBusy) return
-    lyricsIpcBusy = false
-    lyricsIpcLoader.active = false
-    lyricsIpcTimeout.stop()
-    var fields = String(reply || "").split("\u001f")
-    if (fields[0] === "OK" && fields.length > 1 && fields[1] !== "invalid-song") {
-      finishLyricsPluginLaunch(0)
-      return
-    }
-    // SKIP means the shell does not serve this target on its socket, so the
-    // shell would only answer through a qs ipc client carrying the arguments
-    // on its command line. Open the plugin without the song instead.
-    lyricsIpcUnavailable = true
-    openLyricsPanelBare()
-  }
-
-  function openLyricsPanelBare() {
-    if (lyricsPluginLaunchProcess.running) return
-    lyricsPluginLaunchProcess.command = ["omarchy-shell", lyricsPluginId, "open"]
-    lyricsPluginLaunchProcess.running = true
-  }
-
-  function finishLyricsPluginLaunch(exitCode) {
-    if (Number(exitCode) === 0) {
-      var openedSurface = lyricsPluginRequestSurface
-      pendingLyricsSong = null
-      lyricsPluginRequestSurface = ""
-      lyricsPluginError = ""
-      lyricsPluginLaunchAttempts = 0
-      lyricsPluginOpened(openedSurface)
-      return
-    }
-    if (lyricsPluginLaunchAttempts < 8) {
-      lyricsPluginLaunchRetry.restart()
-      return
-    }
-    var detail = String(lyricsPluginLaunchStderr.text || "").trim()
-    lyricsPluginError = Api.redact(detail
-      || "Omasing is installed, but its lyrics window could not be opened.")
-    lyricsPluginPromptRequested(lyricsPluginRequestSurface, lyricsPluginAvailability)
-  }
-
   BackendClient {
     id: backendClient
     // Connect while a surface is open or audio is playing. Dropping the client
@@ -969,71 +814,9 @@ Item {
     onTriggered: root.playbackPositionTick++
   }
 
-  Process {
-    id: lyricsPluginSetupProcess
-    running: false
-    stderr: StdioCollector { }
-    onExited: function(code) {
-      root.lyricsPluginBusy = false
-      root.lyricsPluginOperation = ""
-      if (Number(code) === 0) {
-        root.lyricsPluginLaunchAttempts = 0
-        root.launchLyricsPlugin()
-      } else {
-        root.lyricsPluginError = Api.redact(String(stderr.text || "").trim()
-          || "Omasing could not be installed.")
-        root.lyricsPluginPromptRequested(root.lyricsPluginRequestSurface,
-          root.lyricsPluginAvailability)
-      }
-    }
-  }
 
-  Process {
-    id: lyricsPluginLaunchProcess
-    running: false
-    stderr: StdioCollector { id: lyricsPluginLaunchStderr }
-    onExited: function(code) { root.finishLyricsPluginLaunch(code) }
-  }
 
-  // The shell answers a request on this socket in process, so no child process
-  // ever holds the song. The reply is "OK" plus the result, or "SKIP" when the
-  // target is not served there (Omasing still answers plain qs ipc).
-  Component {
-    id: lyricsIpcComponent
 
-    Socket {
-      path: root.shellIpcSocketPath
-      parser: SplitParser {
-        splitMarker: "\u001e"
-        onRead: function(data) { root.finishLyricsIpc(String(data)) }
-      }
-      Component.onCompleted: connected = true
-      onConnectionStateChanged: {
-        if (!connected) return
-        write(root.lyricsIpcRequest)
-        flush()
-      }
-      onError: function() { root.finishLyricsIpc("") }
-    }
-  }
-
-  Loader {
-    id: lyricsIpcLoader
-    active: false
-    sourceComponent: lyricsIpcComponent
-  }
-
-  Timer {
-    id: lyricsIpcTimeout
-    interval: 1500
-    onTriggered: root.finishLyricsIpc("")
-  }
-
-  Timer {
-    id: lyricsPluginLaunchRetry
-    interval: 400
-    onTriggered: root.launchLyricsPlugin()
-  }
 
   Component.onCompleted: {
     syncSettings()

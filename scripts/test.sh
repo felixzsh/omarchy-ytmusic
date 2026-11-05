@@ -29,7 +29,7 @@ node --check "$source_root/backend/resolver/resolver.mjs"
 if command -v qmllint >/dev/null 2>&1; then
   qmllint -I /usr/share/omarchy/shell Api.js \
     ArtistLinks.qml MediaByline.qml MediaRow.qml MediaCollection.qml \
-    PlaybackSlider.qml FastScrollHandler.qml LyricsInstallPrompt.qml \
+    PlaybackSlider.qml FastScrollHandler.qml \
     BackendClient.qml DaemonManager.qml Service.qml BarWidget.qml Panel.qml
 fi
 

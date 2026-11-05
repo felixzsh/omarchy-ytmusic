@@ -17,11 +17,9 @@ BarWidget {
     ? bar.shell.serviceFor("felixzsh.ytmusic") : null
   readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
   readonly property string surfaceKey: "ytmusic-popup-" + String(root)
-  readonly property string lyricsRequestKey: surfaceKey + "-lyrics"
   readonly property bool miniPlayerEnabled:
     String(root.setting("showMiniPlayer", "On")) !== "Off"
   property bool popupOpen: false
-  property bool lyricsInstallPromptVisible: false
   property bool miniShortcutHelpVisible: false
   property bool popoutSwitchClosing: false
   property bool miniCursorActive: false
@@ -39,7 +37,6 @@ BarWidget {
     { keys: "Ctrl+Up / Down", action: "Change volume" },
     { keys: "M", action: "Mute or restore volume" },
     { keys: "Ctrl+S / Ctrl+R", action: "Shuffle / repeat" },
-    { keys: "Ctrl+Shift+L", action: "Open lyrics" },
     { keys: "O", action: "Open full player" },
     { keys: "Ctrl+/", action: "Toggle this reference" },
     { keys: "Scroll the bar icon", action: "Previous or next track" },
@@ -47,7 +44,6 @@ BarWidget {
     { keys: "Esc", action: "Close" }
   ]
   readonly property var miniKeyboardActions: {
-    if (lyricsInstallPromptVisible) return ["prompt-cancel", "prompt-confirm"]
     if (miniShortcutHelpVisible) return ["help-close"]
     if (ytmusic && !ytmusic.accountConnected) {
       var setupActions = ["setup"]
@@ -62,7 +58,6 @@ BarWidget {
     if (ytmusic && ytmusic.playbackControllable) {
       actions.push("shuffle", "previous", "play", "next", "repeat")
     }
-    if (ytmusic && ytmusic.lyricsAvailable) actions.push("lyrics")
     if (ytmusic && ytmusic.hasPlayer && ytmusic.volumeSupported)
       actions.push("volume")
     actions.push("open")
@@ -206,22 +201,9 @@ BarWidget {
     })
   }
 
-  function openLyrics() {
-    if (!ytmusic || !ytmusic.currentLyricsSong) return
-    var result = ytmusic.requestLyrics(lyricsRequestKey)
-    if (result !== "opening") {
-      lyricsInstallPromptVisible = true
-      popupOpen = true
-    }
-  }
 
-  function dismissLyricsInstallPrompt() {
-    if (ytmusic) ytmusic.cancelLyricsPlugin(lyricsRequestKey)
-    lyricsInstallPromptVisible = false
-  }
 
   function toggleMiniShortcutHelp() {
-    if (lyricsInstallPromptVisible) return
     miniShortcutHelpVisible = !miniShortcutHelpVisible
     if (miniShortcutHelpVisible) setMiniCursor("help-close")
     else ensureMiniCursor()
@@ -278,11 +260,7 @@ BarWidget {
 
   function activateMiniAction(action) {
     if (action === "help-close") toggleMiniShortcutHelp()
-    else if (action === "prompt-cancel") dismissLyricsInstallPrompt()
-    else if (action === "prompt-confirm") {
-      if (ytmusic && !ytmusic.lyricsPluginBusy)
-        ytmusic.confirmLyricsPlugin(lyricsRequestKey)
-    } else if (action === "artist") openCurrentArtist()
+ else if (action === "artist") openCurrentArtist()
     else if (action === "like") {
       if (ytmusic) ytmusic.toggleCurrentTrackSaved()
     } else if (action === "shuffle") {
@@ -295,7 +273,6 @@ BarWidget {
       if (ytmusic) ytmusic.next()
     } else if (action === "repeat") {
       if (ytmusic) ytmusic.cycleRepeat()
-    } else if (action === "lyrics") openLyrics()
     else if (action === "volume") toggleMute()
     else if (action === "setup") {
       if (ytmusic) ytmusic.login()
@@ -310,9 +287,7 @@ BarWidget {
     var plain = !ctrl && !shift && !alt
     var text = String(event.text || "").toLowerCase()
 
-    if (lyricsInstallPromptVisible) {
-      if (event.key === Qt.Key_Escape) dismissLyricsInstallPrompt()
-      else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab)
+    if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab)
         moveMiniCursor(shift || event.key === Qt.Key_Backtab ? -1 : 1)
       else if (event.key === Qt.Key_Left || event.key === Qt.Key_Up
           || text === "h" || text === "k") moveMiniCursor(-1)
@@ -347,8 +322,6 @@ BarWidget {
       if (ytmusic && !event.isAutoRepeat) ytmusic.setShuffle(!ytmusic.shuffle)
     } else if (ctrl && !shift && event.key === Qt.Key_R) {
       if (ytmusic && !event.isAutoRepeat) ytmusic.cycleRepeat()
-    } else if (ctrl && shift && event.key === Qt.Key_L) {
-      if (!event.isAutoRepeat) openLyrics()
     } else if (plain && event.key === Qt.Key_Space) {
       if (ytmusic && !event.isAutoRepeat) ytmusic.togglePlayback()
     } else if (plain && event.key === Qt.Key_M) {
@@ -387,12 +360,6 @@ BarWidget {
   onYtmusicChanged: syncSettings()
   onMiniPlayerEnabledChanged: if (!miniPlayerEnabled) close()
   onMiniKeyboardActionsChanged: ensureMiniCursor()
-  onLyricsInstallPromptVisibleChanged: {
-    if (lyricsInstallPromptVisible) {
-      miniCursor = "prompt-cancel"
-      miniCursorActive = true
-    } else ensureMiniCursor()
-  }
   onPopupOpenChanged: {
     if (popupOpen) {
       miniCursor = miniKeyboardActions.indexOf("play") >= 0
@@ -400,11 +367,6 @@ BarWidget {
       miniCursorActive = miniKeyboardActions.length > 0
     } else miniCursorActive = false
     if (ytmusic) ytmusic.setUiVisible(surfaceKey, popupOpen)
-    if (!popupOpen && lyricsInstallPromptVisible
-        && (!ytmusic || !ytmusic.lyricsPluginBusy)) {
-      if (ytmusic) ytmusic.cancelLyricsPlugin(lyricsRequestKey)
-      lyricsInstallPromptVisible = false
-    }
   }
   Component.onCompleted: syncSettings()
   Component.onDestruction: if (ytmusic) ytmusic.setUiVisible(surfaceKey, false)
@@ -518,7 +480,7 @@ BarWidget {
 
       Shortcut {
         sequence: "Ctrl+/"
-        enabled: root.popupOpen && !root.lyricsInstallPromptVisible
+        enabled: root.popupOpen
         onActivated: root.toggleMiniShortcutHelp()
       }
 
@@ -531,7 +493,7 @@ BarWidget {
         Column {
           width: parent.width
           spacing: Style.space(8)
-          visible: !root.lyricsInstallPromptVisible
+          visible: true
             && root.ytmusic && !root.ytmusic.accountConnected
 
           Text {
@@ -571,7 +533,7 @@ BarWidget {
         Row {
           width: parent.width
           spacing: Style.space(12)
-          visible: !root.lyricsInstallPromptVisible
+          visible: true
             && (!root.ytmusic || root.ytmusic.accountConnected || root.ytmusic.hasMedia)
 
           BorderSurface {
@@ -672,7 +634,7 @@ BarWidget {
         Column {
           width: parent.width
           spacing: Style.space(3)
-          visible: !root.lyricsInstallPromptVisible
+          visible: true
             && root.ytmusic && root.ytmusic.lengthSeconds > 0
 
           PlaybackSlider {
@@ -714,7 +676,7 @@ BarWidget {
         Row {
           anchors.horizontalCenter: parent.horizontalCenter
           spacing: Style.space(5)
-          visible: !root.lyricsInstallPromptVisible
+          visible: true
 
           Button {
             iconText: "󰒟"
@@ -767,19 +729,13 @@ BarWidget {
           }
           Button {
             iconText: "󰎈"
-            foreground: root.foreground
-            hasCursor: root.miniCursorActive && root.miniCursor === "lyrics"
-            tooltipText: "Open lyrics in Omasing · Ctrl+Shift+L"
-            enabled: root.ytmusic && root.ytmusic.lyricsAvailable
-            onClicked: root.openLyrics()
-            onHovered: function(on) { if (on) root.setMiniCursor("lyrics") }
-          }
+            foreground: root.foreground          }
         }
 
         Row {
           width: parent.width
           spacing: Style.space(8)
-          visible: !root.lyricsInstallPromptVisible && root.ytmusic && root.ytmusic.hasPlayer
+          visible: root.ytmusic && root.ytmusic.hasPlayer
 
           Text {
             anchors.verticalCenter: parent.verticalCenter
@@ -807,13 +763,13 @@ BarWidget {
 
         PanelSeparator {
           foreground: root.foreground
-          visible: !root.lyricsInstallPromptVisible
+          visible: true
         }
 
         Row {
           width: parent.width
           spacing: Style.space(6)
-          visible: !root.lyricsInstallPromptVisible
+          visible: true
 
           Text {
             width: parent.width - openButton.width - Style.space(6)
@@ -841,17 +797,6 @@ BarWidget {
             onClicked: root.openFullPanel()
             onHovered: function(on) { if (on) root.setMiniCursor("open") }
           }
-        }
-
-        LyricsInstallPrompt {
-          width: parent.width
-          visible: root.lyricsInstallPromptVisible
-          service: root.ytmusic
-          foreground: root.foreground
-          surfaceKey: root.lyricsRequestKey
-          cancelHasCursor: root.miniCursorActive && root.miniCursor === "prompt-cancel"
-          confirmHasCursor: root.miniCursorActive && root.miniCursor === "prompt-confirm"
-          onCanceled: root.dismissLyricsInstallPrompt()
         }
       }
 
@@ -913,18 +858,4 @@ BarWidget {
     }
   }
 
-  Connections {
-    target: root.ytmusic
-    ignoreUnknownSignals: true
-    function onLyricsPluginPromptRequested(surface, availability) {
-      if (String(surface) !== root.lyricsRequestKey) return
-      root.lyricsInstallPromptVisible = true
-      root.popupOpen = true
-    }
-    function onLyricsPluginOpened(surface) {
-      if (String(surface) !== root.lyricsRequestKey) return
-      root.lyricsInstallPromptVisible = false
-      root.close()
-    }
-  }
 }

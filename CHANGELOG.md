@@ -1,10 +1,5 @@
 # Changelog
 
-## Unreleased
-- Keep listening metadata off every command line: the lyrics handoff now goes
-  over the Omarchy shell's IPC socket, which the shell answers in process. A
-  target the socket does not serve (Omasing 0.1.5 still answers plain `qs ipc`)
-  is opened without the song instead of falling back to arguments.
 - Decrypt Chromium cookies in process only. The `openssl enc -K` fallback put
   the cookie key on a command line, where another local account could read it;
   the backend venv now installs `cryptography` and nothing else is used.
@@ -89,4 +84,4 @@
 - First release: Omarchy bar widget, mini-player, and full player for YouTube Music.
 - Started from [Omarchy Spotify](https://github.com/stappmus/Omarchy-Spotify).
 - Local playback through a plugin-owned mpv backend and yt-dlp, not Chromium.
-- Library, search, playlists, queue, likes, radio, sleep timer, and Omasing lyrics.
+- Library, search, playlists, queue, likes, radio, sleep timer.

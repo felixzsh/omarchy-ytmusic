@@ -49,7 +49,6 @@ Item {
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "felixzsh.ytmusic"
-  readonly property string lyricsRequestKey: "ytmusic-panel-lyrics"
   readonly property color foreground: Commons.Color.foreground
   readonly property color background: Commons.Color.background
   readonly property color accent: Commons.Color.accent
@@ -65,7 +64,7 @@ Item {
     currentTab, universalSearchActive)
   readonly property bool shortcutsBlocked: mediaContextMenu.opened
     || playlistPicker.opened || createPlaylistPopup.opened || sleepPopup.opened
-    || shortcutHelpPopup.opened || lyricsInstallPopup.opened
+    || shortcutHelpPopup.opened
   readonly property var panelBar: QtObject {
     readonly property color foreground: root.foreground
     readonly property color background: root.background
@@ -232,11 +231,6 @@ Item {
     } else service.setVolume(Api.unmuteVolume(volumeBeforeMute))
   }
 
-  function openLyrics() {
-    if (!service || !service.currentLyricsSong) return
-    var result = service.requestLyrics(lyricsRequestKey)
-    if (result !== "opening") lyricsInstallPopup.open()
-  }
 
   function toggleShortcutHelp() {
     if (shortcutHelpPopup.opened) shortcutHelpPopup.close()
@@ -244,9 +238,6 @@ Item {
   }
 
   function dismissTransientPopup() {
-    if (lyricsInstallPopup.opened && (!service || !service.lyricsPluginBusy)) {
-      lyricsInstallPopup.close(); return true
-    }
     if (shortcutHelpPopup.opened) { shortcutHelpPopup.close(); return true }
     if (mediaContextMenu.opened) { mediaContextMenu.close(); return true }
     if (playlistPicker.opened) { playlistPicker.close(); return true }
@@ -343,12 +334,6 @@ Item {
     target: root.service
     ignoreUnknownSignals: true
     function onAccountConnectedChanged() { root.updateLoginGate() }
-    function onLyricsPluginPromptRequested(surface) {
-      if (String(surface) === root.lyricsRequestKey) lyricsInstallPopup.open()
-    }
-    function onLyricsPluginOpened(surface) {
-      if (String(surface) === root.lyricsRequestKey) lyricsInstallPopup.close()
-    }
   }
 
   Popup {
@@ -635,7 +620,6 @@ Item {
           { keys: "Ctrl+Up / Down", action: "Volume" },
           { keys: "M", action: "Mute" },
           { keys: "Ctrl+S / Ctrl+R", action: "Shuffle / repeat" },
-          { keys: "Ctrl+Shift+L", action: "Lyrics" },
           { keys: "Alt+Left", action: "Back" },
           { keys: "Ctrl+,", action: "Settings" },
           { keys: "Ctrl+/", action: "This help" },
@@ -667,26 +651,6 @@ Item {
     }
   }
 
-  Popup {
-    id: lyricsInstallPopup
-    parent: focusScope
-    modal: true
-    anchors.centerIn: parent
-    width: Style.space(360)
-    padding: Style.space(12)
-    background: BorderSurface {
-      radius: Style.cornerRadius
-      color: Commons.Color.popups.background
-      borderSpec: Border.flat(Commons.Color.popups.border, 1)
-    }
-    LyricsInstallPrompt {
-      width: parent.width
-      service: root.service
-      foreground: root.foreground
-      surfaceKey: root.lyricsRequestKey
-      onCanceled: lyricsInstallPopup.close()
-    }
-  }
 
   Component {
     id: loginPage
@@ -1297,11 +1261,6 @@ Item {
       Shortcut { sequence: "Alt+Shift+H"; enabled: !root.shortcutsBlocked; onActivated: root.chooseTab("home") }
       Shortcut { sequence: "Alt+Shift+Q"; enabled: !root.shortcutsBlocked; onActivated: root.chooseTab("queue") }
       Shortcut {
-        sequence: "Ctrl+Shift+L"
-        enabled: !root.shortcutsBlocked && !root.textInputFocused() && root.service && root.service.lyricsAvailable
-        onActivated: root.openLyrics()
-      }
-      Shortcut {
         sequence: "Space"
         enabled: !root.shortcutsBlocked && !root.textInputFocused() && root.service
         onActivated: root.service.togglePlayback()
@@ -1778,8 +1737,6 @@ Item {
                 Button {
                   iconText: "󰎈"
                   foreground: root.foreground
-                  enabled: root.service && root.service.lyricsAvailable
-                  onClicked: root.openLyrics()
                 }
                 Button {
                   iconText: "󰒲"

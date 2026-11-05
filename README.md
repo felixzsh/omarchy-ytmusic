@@ -12,9 +12,6 @@ This plugin started from [Omarchy Spotify](https://github.com/stappmus/Omarchy-S
 by [stappmus](https://github.com/stappmus). The layout, shell integration, and
 much of the player UI come from that project.
 
-Pair it with **Omasing** and lyrics for the song you are playing are fetched
-for you, ready when you want them.
-
 ![Omarchy YouTube Music full player](preview.png)
 
 ## Why you will love it
@@ -23,11 +20,8 @@ for you, ready when you want them.
   client.
 - **Made for Omarchy.** Every color follows your current theme automatically.
 - **Always within reach.** Play, pause, skip, seek, change volume, or open
-  lyrics from the mini player in your bar.
 - **Your YouTube Music library.** Search, browse home shelves, liked songs,
   playlists, albums, and artists, then build a queue.
-- **Lyrics with Omasing.** Open the current song in Omasing and let it find
-  the right lyrics and playback position automatically.
 - **Native where it matters.** The backend publishes its own MPRIS player, so
   playerctl, KDE Connect, Flux, and other MPRIS clients see "YouTube Music"
   with artist, album, artwork, position, and working transport controls.
@@ -48,7 +42,6 @@ player stays at the bottom.
 | `Ctrl+Up` / `Ctrl+Down` | Change volume |
 | `M` | Mute or restore volume |
 | `Ctrl+S` / `Ctrl+R` | Shuffle / repeat |
-| `Ctrl+Shift+L` | Open lyrics in Omasing |
 | `Ctrl+/` | See every keyboard shortcut |
 
 The mini-player takes keyboard focus when it is opened from a shortcut. Use
@@ -129,13 +122,6 @@ decrypted inside the backend process, so the key never reaches a command line.
 ## Privacy
 
 What you are listening to stays with you:
-
-- Opening lyrics for a song asks Omasing over the Omarchy shell's own IPC
-  socket, which the shell answers in process. The song never becomes a process
-  argument: `/proc/<pid>/cmdline` is readable by every local account while the
-  child runs. Omasing 0.1.5 still answers plain `qs ipc` only, and that carries
-  its arguments on a command line, so until it registers with Omarchy's
-  `ShellIpc` the plugin opens Omasing without pre-filling the song.
 - The stream resolver runs under Node's permission model: it may read its own
   tree and its cache, may write only there, and cannot start processes, threads
   or native addons, so the player JavaScript it downloads at run time cannot

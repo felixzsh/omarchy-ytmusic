@@ -176,41 +176,8 @@ function mediaRowShouldCompact(titleWidth, availableWidth, actionCount) {
   return actions > 0 && title > available
 }
 
-function lyricsSong(trackId, title, artist, album, duration, coverUrl,
-    positionSeconds) {
-  var id = String(trackId || "").trim()
-  var songTitle = String(title || "").trim()
-  var songArtist = String(artist || "").trim()
-  if (!id || !songTitle || !songArtist) return null
-  var songDuration = Math.max(0, Number(duration) || 0)
-  var songPosition = Math.max(0, Number(positionSeconds) || 0)
-  if (songDuration > 0) songPosition = Math.min(songPosition, songDuration)
-  return {
-    id: id.indexOf("ytm:") === 0 ? id : "ytm:track:" + id,
-    title: songTitle,
-    artist: songArtist,
-    album: String(album || "").trim(),
-    duration: songDuration,
-    coverUrl: String(coverUrl || "").trim(),
-    positionSeconds: songPosition
-  }
-}
 
-function optionalPluginState(installed, enabled) {
-  if (installed !== true) return "missing"
-  return enabled === true ? "ready" : "disabled"
-}
 
-function optionalPluginSetupCommand(state, pluginId, repositoryUrl) {
-  var availability = String(state || "")
-  var id = String(pluginId || "").trim()
-  var url = String(repositoryUrl || "").trim()
-  if (availability === "missing" && url)
-    return ["omarchy", "plugin", "add", url, "--enable", "--yes"]
-  if (availability === "disabled" && id)
-    return ["omarchy", "plugin", "enable", id, "--section", "center"]
-  return []
-}
 
 function isUtilityTab(tab) {
   var area = String(tab || "")
