@@ -111,6 +111,26 @@ Item {
   }
   property bool lyricsPluginBusy: false
   property string lyricsPluginOperation: ""
+  // A song is private: /proc/<pid>/cmdline is readable by every local account,
+  // so track metadata never travels as a process argument. The handoff goes
+  // over the shell's own IPC socket (shell.qml, bin/omarchy-shell), which the
+  // shell answers in process. A target the socket does not serve is opened
+  // bare instead: argv is never a fallback for metadata.
+  readonly property string shellIpcSocketPath: {
+    var runtimeDir = Quickshell.env("XDG_RUNTIME_DIR")
+    var omarchyPath = Quickshell.env("OMARCHY_PATH")
+    if (!runtimeDir || !omarchyPath) return ""
+    var id = ""
+    try {
+      id = Qt.md5(omarchyPath + "/shell\n" + (Quickshell.env("WAYLAND_DISPLAY") || "")).slice(0, 16)
+    } catch (error) {
+      return ""
+    }
+    return id ? runtimeDir + "/omarchy-shell-" + id + ".sock" : ""
+  }
+  property bool lyricsIpcBusy: false
+  property bool lyricsIpcUnavailable: false
+  property string lyricsIpcRequest: ""
   property string lyricsPluginError: ""
   property string lyricsPluginRequestSurface: ""
   property var pendingLyricsSong: null
@@ -756,13 +776,52 @@ Item {
     lyricsPluginRequestSurface = ""
     pendingLyricsSong = null
     lyricsPluginError = ""
+    lyricsIpcBusy = false
+    lyricsIpcLoader.active = false
+    lyricsIpcTimeout.stop()
   }
 
   function launchLyricsPlugin() {
-    if (!pendingLyricsSong || lyricsPluginLaunchProcess.running) return
+    if (!pendingLyricsSong || lyricsIpcBusy || lyricsPluginLaunchProcess.running) return
     lyricsPluginLaunchAttempts++
-    lyricsPluginLaunchProcess.command = ["omarchy-shell", lyricsPluginId,
-      "lyrics", JSON.stringify(pendingLyricsSong)]
+    if (!lyricsIpcUnavailable && shellIpcSocketPath !== "" && sendLyricsOverShellIpc())
+      return
+    openLyricsPanelBare()
+  }
+
+  // The request is [target, method, arguments] joined by unit separators and
+  // ended by a record separator, exactly what bin/omarchy-shell sends.
+  function sendLyricsOverShellIpc() {
+    if (!pendingLyricsSong || shellIpcSocketPath === "") return false
+    lyricsIpcRequest = [lyricsPluginId, "lyrics",
+      JSON.stringify(pendingLyricsSong)].join("\u001f") + "\u001e"
+    lyricsIpcBusy = true
+    // A Quickshell Socket is single-use: a fresh one per request.
+    lyricsIpcLoader.active = true
+    lyricsIpcTimeout.restart()
+    return true
+  }
+
+  function finishLyricsIpc(reply) {
+    if (!lyricsIpcBusy) return
+    lyricsIpcBusy = false
+    lyricsIpcLoader.active = false
+    lyricsIpcTimeout.stop()
+    var fields = String(reply || "").split("\u001f")
+    if (fields[0] === "OK" && fields.length > 1 && fields[1] !== "invalid-song") {
+      finishLyricsPluginLaunch(0)
+      return
+    }
+    // SKIP means the shell does not serve this target on its socket, so the
+    // shell would only answer through a qs ipc client carrying the arguments
+    // on its command line. Open the plugin without the song instead.
+    lyricsIpcUnavailable = true
+    openLyricsPanelBare()
+  }
+
+  function openLyricsPanelBare() {
+    if (lyricsPluginLaunchProcess.running) return
+    lyricsPluginLaunchProcess.command = ["omarchy-shell", lyricsPluginId, "open"]
     lyricsPluginLaunchProcess.running = true
   }
 
@@ -934,6 +993,40 @@ Item {
     running: false
     stderr: StdioCollector { id: lyricsPluginLaunchStderr }
     onExited: function(code) { root.finishLyricsPluginLaunch(code) }
+  }
+
+  // The shell answers a request on this socket in process, so no child process
+  // ever holds the song. The reply is "OK" plus the result, or "SKIP" when the
+  // target is not served there (Omasing still answers plain qs ipc).
+  Component {
+    id: lyricsIpcComponent
+
+    Socket {
+      path: root.shellIpcSocketPath
+      parser: SplitParser {
+        splitMarker: "\u001e"
+        onRead: function(data) { root.finishLyricsIpc(String(data)) }
+      }
+      Component.onCompleted: connected = true
+      onConnectionStateChanged: {
+        if (!connected) return
+        write(root.lyricsIpcRequest)
+        flush()
+      }
+      onError: function() { root.finishLyricsIpc("") }
+    }
+  }
+
+  Loader {
+    id: lyricsIpcLoader
+    active: false
+    sourceComponent: lyricsIpcComponent
+  }
+
+  Timer {
+    id: lyricsIpcTimeout
+    interval: 1500
+    onTriggered: root.finishLyricsIpc("")
   }
 
   Timer {

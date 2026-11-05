@@ -52,6 +52,8 @@ unit_exists() {
   systemctl --user cat "$1" >/dev/null 2>&1
 }
 
+# Chromium cookies are decrypted in process, which needs cryptography: an
+# install from before it was required reports itself as needing setup.
 runtime_ready() {
   [[ -x $venv_python && -f $backend_script ]] \
     && unit_exists "$unit" && unit_exists "$socket" \
@@ -59,6 +61,7 @@ runtime_ready() {
       && -f "$resolver_dir/node_modules/youtubei.js/package.json" \
       && -f "$resolver_dir/node_modules/googlevideo/package.json" \
       && -f "$resolver_dir/node_modules/bgutils-js/package.json" ]] \
+    && "$venv_python" -c 'import cryptography' >/dev/null 2>&1 \
     && command -v node >/dev/null 2>&1 && command -v mpv >/dev/null 2>&1
 }
 

@@ -123,7 +123,26 @@ Home shelves and search work without signing in. If you already use
 headers is still available as a fallback.
 
 Your password is entered only on Google's own page. Headers are stored in
-`~/.config/omarchy-ytmusic/browser.json` with mode `600`.
+`~/.config/omarchy-ytmusic/browser.json` with mode `600`. Chromium cookies are
+decrypted inside the backend process, so the key never reaches a command line.
+
+## Privacy
+
+What you are listening to stays with you:
+
+- Opening lyrics for a song asks Omasing over the Omarchy shell's own IPC
+  socket, which the shell answers in process. The song never becomes a process
+  argument: `/proc/<pid>/cmdline` is readable by every local account while the
+  child runs. Omasing 0.1.5 still answers plain `qs ipc` only, and that carries
+  its arguments on a command line, so until it registers with Omarchy's
+  `ShellIpc` the plugin opens Omasing without pre-filling the song.
+- The stream resolver runs under Node's permission model: it may read its own
+  tree and its cache, may write only there, and cannot start processes, threads
+  or native addons, so the player JavaScript it downloads at run time cannot
+  reach the rest of your files.
+- `youtubei.js` caches that player script in `$TMPDIR`; the resolver points
+  `TMPDIR` at its own `0700` runtime directory instead of the shared `/tmp`, so
+  no other account can plant a file it would then run.
 
 ## Remove
 

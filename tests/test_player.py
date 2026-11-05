@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
+import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -16,6 +21,7 @@ from player import (  # noqa: E402
     mpris_title,
     mpv_command_line,
     mpv_env,
+    node_sandbox_flags,
     StreamResolver,
     QueuePlayer,
     PlayerError,
@@ -44,6 +50,82 @@ class PlayerTests(unittest.TestCase):
         self.assertEqual(StreamResolver._normalize_quality(96), 96)
         self.assertEqual(StreamResolver._normalize_quality(128), 160)
         self.assertEqual(StreamResolver._normalize_quality(320), 320)
+
+    def test_resolver_runs_inside_nodes_permission_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            resolver = StreamResolver(
+                runtime_dir=root / "run",
+                resolver_script=root / "resolver" / "resolver.mjs",
+            )
+            resolver.cache_dir = root / "cache"
+            with patch("player.node_sandbox_flags", return_value=["--permission"]):
+                command = resolver._node_command("/usr/bin/node")
+        self.assertEqual(command[0], "/usr/bin/node")
+        self.assertIn("--permission", command)
+        # The resolver reads its own tree and writes only its cache and scratch.
+        self.assertIn(f"--allow-fs-read={root / 'resolver'}", command)
+        self.assertIn(f"--allow-fs-read={root / 'cache'}", command)
+        self.assertIn(f"--allow-fs-read={root / 'run' / 'tmp'}", command)
+        self.assertIn(f"--allow-fs-write={root / 'cache'}", command)
+        self.assertIn(f"--allow-fs-write={root / 'run' / 'tmp'}", command)
+        self.assertNotIn(f"--allow-fs-write={root / 'resolver'}", command)
+        self.assertNotIn("--allow-child-process", command)
+        self.assertNotIn("--allow-worker", command)
+
+    def test_resolver_still_starts_when_node_lacks_permissions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            resolver = StreamResolver(
+                runtime_dir=Path(tmp) / "run",
+                resolver_script=Path(tmp) / "resolver.mjs",
+            )
+            with patch("player.node_sandbox_flags", return_value=[]):
+                command = resolver._node_command("/usr/bin/node")
+        self.assertEqual(command[0], "/usr/bin/node")
+        self.assertFalse(any(item.startswith("--allow-fs") for item in command))
+
+    def test_resolver_sandbox_blocks_the_owners_filesystem(self):
+        node = shutil.which("node")
+        if not node or not node_sandbox_flags(node):
+            self.skipTest("this node has no permission model")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = root / "resolver" / "probe.mjs"
+            script.parent.mkdir()
+            script.write_text(
+                "import fs from 'node:fs';\n"
+                "import { execFileSync } from 'node:child_process';\n"
+                "const attempt = (fn) => {\n"
+                "  try { fn(); return 'allowed'; } catch (e) { return e.code; }\n"
+                "};\n"
+                "console.log(JSON.stringify({\n"
+                "  home: attempt(() => fs.readFileSync(process.env.HOME + '/.ssh/known_hosts')),\n"
+                "  scratch: attempt(() => fs.writeFileSync(process.env.TMPDIR + '/s', 'x')),\n"
+                "  spawn: attempt(() => execFileSync('true')),\n"
+                "}));\n"
+            )
+            resolver = StreamResolver(
+                runtime_dir=root / "run",
+                resolver_script=script,
+            )
+            resolver.cache_dir = root / "cache"
+            resolver.cache_dir.mkdir()
+            scratch = resolver._scratch_dir()
+            scratch.mkdir(parents=True)
+            environment = dict(os.environ, TMPDIR=str(scratch))
+            result = subprocess.run(
+                resolver._node_command(node),
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=environment,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout.strip().splitlines()[-1])
+        self.assertEqual(report["home"], "ERR_ACCESS_DENIED")
+        self.assertEqual(report["scratch"], "allowed")
+        self.assertEqual(report["spawn"], "ERR_ACCESS_DENIED")
 
     def test_mpv_command_stays_headless(self):
         command = mpv_command_line("/usr/bin/mpv", Path("/tmp/mpv.sock"))

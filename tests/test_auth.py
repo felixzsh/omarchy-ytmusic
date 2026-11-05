@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
@@ -30,26 +30,10 @@ def _pad_pkcs7(data: bytes) -> bytes:
 
 
 def _aes_cbc_encrypt(plaintext: bytes, key: bytes, iv: bytes) -> bytes:
-    padded = _pad_pkcs7(plaintext)
-    proc = subprocess.run(
-        [
-            "openssl",
-            "enc",
-            "-aes-128-cbc",
-            "-e",
-            "-nopad",
-            "-K",
-            key.hex(),
-            "-iv",
-            iv.hex(),
-        ],
-        input=padded,
-        capture_output=True,
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.decode("utf-8", "replace"))
-    return proc.stdout
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    encryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor()
+    return encryptor.update(_pad_pkcs7(plaintext)) + encryptor.finalize()
 
 
 def _v11_cookie(value: str, key: bytes) -> bytes:
@@ -84,6 +68,15 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(decrypt_chrome_value(encrypted, key), "SAPISID-value")
         roundtrip = aes_cbc_decrypt(encrypted[3:], key, b" " * 16)
         self.assertTrue(roundtrip)
+
+    def test_decrypt_keeps_the_key_in_process(self):
+        # The Chromium key must never reach a child process: a command line is
+        # readable by every local account. Decryption runs in process only.
+        password = b"no-subprocess"
+        key = derive_os_crypt_key(password)
+        encrypted = _v11_cookie("SAPISID-value", key)
+        with mock.patch("auth.subprocess.run", side_effect=AssertionError("child")):
+            self.assertEqual(decrypt_chrome_value(encrypted, key), "SAPISID-value")
 
     def test_extract_youtube_cookies_from_sqlite(self):
         password = b"unit-test-key"

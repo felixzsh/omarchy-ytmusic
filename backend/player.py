@@ -25,6 +25,39 @@ LOGGER = logging.getLogger(__name__)
 # How often the playback position is written to the session file while playing.
 SESSION_SAVE_INTERVAL = 5.0
 
+# Node's permission model, probed once per binary: the resolver evaluates
+# JavaScript downloaded at run time (the youtubei.js player and Google's
+# BotGuard interpreter), so it must not inherit the owner's filesystem,
+# process or addon authority.
+NODE_SANDBOX_FLAGS: dict[str, list[str]] = {}
+
+
+def node_sandbox_flags(node: str) -> list[str]:
+    """The permission-model flags this node understands, or [] when it has none."""
+    if node in NODE_SANDBOX_FLAGS:
+        return NODE_SANDBOX_FLAGS[node]
+    for probe in (
+        ["--permission", "--allow-net"],
+        ["--permission"],
+        ["--experimental-permission", "--allow-net"],
+        ["--experimental-permission"],
+    ):
+        try:
+            result = subprocess.run(
+                [node, *probe, "-e", ""],
+                capture_output=True,
+                timeout=20,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if result.returncode == 0:
+            NODE_SANDBOX_FLAGS[node] = probe
+            return probe
+    LOGGER.warning("node %s has no permission model; resolver isolation is off", node)
+    NODE_SANDBOX_FLAGS[node] = []
+    return []
+
 
 class PlayerError(RuntimeError):
     pass
@@ -414,6 +447,23 @@ class StreamResolver:
             return configured
         return shutil.which("node") or ""
 
+    def _scratch_dir(self) -> Path:
+        return self.runtime_dir / "tmp"
+
+    def _node_command(self, node: str) -> list[str]:
+        """node argv with the resolver fenced into its own tree and scratch."""
+        command = [node]
+        flags = node_sandbox_flags(node)
+        if flags:
+            scratch = self._scratch_dir()
+            command += flags
+            for path in (self.resolver_script.parent, self.cache_dir, scratch):
+                command.append(f"--allow-fs-read={path}")
+            for path in (self.cache_dir, scratch):
+                command.append(f"--allow-fs-write={path}")
+        command += [str(self.resolver_script), "--cache-dir", str(self.cache_dir)]
+        return command
+
     def _start_helper_locked(self) -> None:
         if self._process and self._process.poll() is None:
             return
@@ -432,11 +482,22 @@ class StreamResolver:
         except OSError:
             pass
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
+        scratch = self._scratch_dir()
+        scratch.mkdir(parents=True, exist_ok=True)
+        try:
+            scratch.chmod(0o700)
+        except OSError:
+            pass
+        # youtubei.js caches the player script it downloads in os.tmpdir(), and
+        # that script is evaluated. Keep it in the resolver's own directory: a
+        # shared /tmp lets any local account plant a file it would run.
+        environment = dict(os.environ)
+        environment["TMPDIR"] = str(scratch)
         log_path = self.runtime_dir / "resolver.log"
         log_handle = log_path.open("ab")
         try:
             self._process = subprocess.Popen(
-                [node, str(self.resolver_script), "--cache-dir", str(self.cache_dir)],
+                self._node_command(node),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=log_handle,
@@ -445,6 +506,7 @@ class StreamResolver:
                 bufsize=1,
                 cwd=str(self.resolver_script.parent),
                 start_new_session=True,
+                env=environment,
             )
         finally:
             log_handle.close()

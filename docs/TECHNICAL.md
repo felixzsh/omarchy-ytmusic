@@ -52,6 +52,24 @@ connected backend never reports `ready` it runs `scripts/playback-runtime.sh
 restart` to replace the wedged process. Setup and restart attempts are bounded
 so a genuinely broken install reports an error instead of looping.
 
+## Matching Omasing
+
+Opening lyrics for the current song is one IPC call to the `stappmus.lyrics`
+target. Track metadata is private, and `/proc/<pid>/cmdline` is readable by
+every local account while a child runs, so the call does not go through a child
+process that carries the song as an argument. The plugin derives the shell's IPC
+socket path the way `bin/omarchy-shell` does (`$XDG_RUNTIME_DIR/omarchy-shell-`
+plus the first 16 hex digits of `md5($OMARCHY_PATH/shell + "\n" +
+$WAYLAND_DISPLAY)`) and sends `target\x1fmethod\x1farguments\x1e` over it; the
+shell answers `OK\x1f<result>\x1e` from inside its own process.
+
+The shell serves only targets that registered through Omarchy's `ShellIpc`
+(`IpcRegistry`). Omasing 0.1.5 declares a plain Quickshell `IpcHandler`, so the
+socket answers `SKIP`, and `omarchy-shell` would then answer through a `qs ipc`
+client — whose arguments are a command line again. The plugin opens Omasing
+without a song in that case. Once Omasing registers with `ShellIpc`, the same
+call pre-fills the lookup and the handoff does not change.
+
 ## MPRIS and session state
 
 `backend/mpris.py` implements `org.mpris.MediaPlayer2.omarchy_ytmusic` over the

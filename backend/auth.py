@@ -358,37 +358,19 @@ def decrypt_chrome_value(encrypted: bytes, key: bytes) -> str:
 
 
 def aes_cbc_decrypt(ciphertext: bytes, key: bytes, iv: bytes) -> bytes:
+    # The key comes from the Chromium keyring, so it must stay in this process.
+    # Shelling out to `openssl enc -K` puts it on a command line, and
+    # /proc/<pid>/cmdline is readable by every local account for as long as the
+    # child runs. Decrypt in process, and only with the cryptography package
+    # that the playback setup installs into the backend venv.
     try:
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-
-        decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
-        return decryptor.update(ciphertext) + decryptor.finalize()
-    except ImportError:
-        pass
-    if shutil.which("openssl") is None:
+    except ImportError as error:
         raise BrowserAuthError(
-            "Need openssl or the cryptography package to read Chromium cookies."
-        )
-    proc = subprocess.run(
-        [
-            "openssl",
-            "enc",
-            "-aes-128-cbc",
-            "-d",
-            "-nopad",
-            "-K",
-            key.hex(),
-            "-iv",
-            iv.hex(),
-        ],
-        input=ciphertext,
-        capture_output=True,
-        check=False,
-    )
-    if proc.returncode != 0:
-        detail = proc.stderr.decode("utf-8", "replace").strip()
-        raise BrowserAuthError(detail or "openssl could not decrypt Chromium cookies")
-    return proc.stdout
+            "The cryptography package is missing; run the playback setup."
+        ) from error
+    decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
+    return decryptor.update(ciphertext) + decryptor.finalize()
 
 
 def unpad_pkcs7(data: bytes) -> bytes:

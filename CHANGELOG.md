@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+- Keep listening metadata off every command line: the lyrics handoff now goes
+  over the Omarchy shell's IPC socket, which the shell answers in process. A
+  target the socket does not serve (Omasing 0.1.5 still answers plain `qs ipc`)
+  is opened without the song instead of falling back to arguments.
+- Decrypt Chromium cookies in process only. The `openssl enc -K` fallback put
+  the cookie key on a command line, where another local account could read it;
+  the backend venv now installs `cryptography` and nothing else is used.
+- Run the stream resolver under Node's permission model: it reads its own tree
+  and cache, writes only its cache and scratch directory, and cannot start
+  processes, threads or native addons.
+- Point the resolver's `TMPDIR` at its own `0700` directory, so the player
+  JavaScript it downloads and evaluates cannot be planted in shared `/tmp` by
+  another local account.
+
 ## 1.3.0
 - Publish a native `org.mpris.MediaPlayer2.omarchy_ytmusic` player from the
   backend (jeepney): "YouTube Music" identity, artist/album/artwork/length
